@@ -245,7 +245,7 @@ function toggleMotivo(fila) {
 async function aprobar(fila) {
   if (!confirm('¿Aprobar esta reserva y crearla en el Calendar?')) return;
   var res = await enviarAccion('aprobarReserva', { fila: fila });
-  alert(res.mensaje);
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
   cargarPanel();
 }
 
@@ -262,22 +262,35 @@ function mostrarRechazo(fila) {
 async function confirmarRechazo(fila) {
   var motivo = document.getElementById('motivo-select-' + fila).value;
   var res = await enviarAccion('rechazarReserva', { fila: fila, motivo: motivo });
-  alert(res.mensaje);
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
   cargarPanel();
 }
 
 async function cancelar(fila) {
   if (!confirm('¿Cancelar esta reserva? Se borrará el evento del Calendar.')) return;
   var res = await enviarAccion('cancelarReserva', { fila: fila });
-  alert(res.mensaje);
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
   cargarPanel();
 }
 
 async function eliminar(fila) {
   if (!confirm('¿ELIMINAR esta fila por completo? No se puede deshacer.')) return;
   var res = await enviarAccion('eliminarDefinitivo', { fila: fila });
-  alert(res.mensaje);
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
   cargarPanel();
+}
+
+function mostrarToast(tipo, mensaje) {
+  var container = document.getElementById('toast-container');
+  var id = 'toast-' + Date.now();
+  var icono = tipo === 'success' ? '✓' : '✗';
+  var html = '<div id="' + id + '" class="toast align-items-center text-bg-' + tipo + ' border-0 show" role="alert">' +
+    '<div class="d-flex">' +
+      '<div class="toast-body"><strong>' + icono + '</strong> ' + mensaje + '</div>' +
+      '<button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="document.getElementById(\'' + id + '\').remove()"></button>' +
+    '</div></div>';
+  container.insertAdjacentHTML('beforeend', html);
+  setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 3500);
 }
 
 cargarPanel();
