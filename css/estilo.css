@@ -1,0 +1,85 @@
+body {
+  background: linear-gradient(135deg, #b0c4de 0%, #7b9bb5 100%);
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1100px;
+}
+
+.card {
+  border-radius: 12px !important;
+}
+
+.kpi-card {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  border-top: 4px solid #ccc !important;
+}
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
+}
+.kpi-card.activo {
+  box-shadow: 0 0 0 2px #14213d inset !important;
+}
+.kpi-card.pendientes { border-top-color: #f5a623 !important; }
+.kpi-card.hoy { border-top-color: #378ade !important; }
+.kpi-card.semana { border-top-color: #1d9e75 !important; }
+.kpi-card.canceladas { border-top-color: #d85a30 !important; }
+
+.reserva {
+  border-left: 5px solid transparent;
+  transition: transform 0.1s ease;
+  background: #fff !important;
+}
+.reserva:hover {
+  transform: translateX(2px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.1) !important;
+}
+.reserva.pasada { background: #eafaf1 !important; border-left-color: #1d9e75 !important; }
+.reserva.manana { background: #eaf3fc !important; border-left-color: #378ade !important; }
+.reserva.hoy-reserva {
+  background: #fff9e6 !important;
+  border-left: 5px solid #f5a623 !important;
+  box-shadow: 0 2px 12px rgba(245, 166, 35, 0.25) !important;
+}
+
+.fecha-tag {
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 8px;
+  margin-left: 8px;
+}
+.fecha-tag.pasada { background: #1d9e75; color: #fff; }
+.fecha-tag.manana { background: #378ade; color: #fff; }
+
+.badge-estado {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
+}
+.badge-estado.pendiente { background: #f5a623; }
+.badge-estado.aprobada { background: #1d9e75; }
+.badge-estado.cancelada { background: #d85a30; }
+.badge-estado.rechazada { background: #d85a30; cursor: pointer; }
+.badge-estado.rechazada:after { content: " ▾"; }
+
+.motivo-rechazo {
+  display: none;
+  margin-top: 6px;
+  font-size: 13px;
+  background: #fdece5;
+  color: #99401d;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.motivo-rechazo.visible { display: block; }
+
+.page-link {
+  cursor: pointer;
+}
