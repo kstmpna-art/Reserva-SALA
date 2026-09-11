@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyyoy86DXi0hp2p5rc_Mrvik1MBO9CezNhn1XfvdP2GzIkWiMSyD0_PssjqmHV0wQgr/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxFc3Fztt8d7_0r0icI0E6AdUd6BNVHGWFsH86aJAfs_voBrKlGKGy0FqLEZK6yPOzA/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -187,10 +187,12 @@ function pintarLista() {
     var b = '';
     if (ep) {
       b = '<button class="btn btn-sm btn-success" onclick="aprobar(' + r.fila + ')">Aprobar</button>' +
-          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>';
+          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
+          '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
     } else if (el.indexOf('aprobada') !== -1) {
       b = '<button class="btn btn-sm btn-outline-danger" onclick="cancelar(' + r.fila + ')">Cancelar</button>' +
-          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>';
+          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
+          '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
     }
     b += '<button class="btn btn-sm btn-outline-secondary" onclick="eliminar(' + r.fila + ')">Eliminar</button>';
     var ob = er ? ' onclick="toggleMotivo(' + r.fila + ')"' : '';
@@ -292,6 +294,94 @@ function mostrarToast(tipo, mensaje) {
     '</div></div>';
   container.insertAdjacentHTML('beforeend', html);
   setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 3500);
+}
+
+function abrirEdicion(fila) {
+  var reserva = TODAS_LAS_RESERVAS.find(function(r) { return r.fila === fila; });
+  if (!reserva) return;
+
+  document.getElementById('edit-fila').value = fila;
+  document.getElementById('edit-motivo').value = reserva.motivo;
+
+  // Convertir fecha de "dd/MM/yyyy" a "yyyy-MM-dd" para input date
+  var partes = reserva.fecha.split('/');
+  document.getElementById('edit-fecha').value = partes[2] + '-' + partes[1] + '-' + partes[0];
+
+  // Extraer horas de los strings (pueden venir como "HH:mm" o con AM/PM)
+  var hi = extraerHoras(reserva.horaInicio);
+  var hf = extraerHoras(reserva.horaFin);
+  document.getElementById('edit-horaInicio').value = hi;
+  document.getElementById('edit-horaFin').value = hf;
+
+  document.getElementById('edit-autoridad').value = reserva.autoridad || '';
+  document.getElementById('edit-responsable').value = reserva.responsable || '';
+  document.getElementById('edit-asistentes').value = reserva.asistentes || '';
+  document.getElementById('edit-dependencias').value = reserva.dependencias || '';
+  document.getElementById('edit-requerimientos').value = reserva.requerimientos || '';
+  document.getElementById('edit-telefono').value = reserva.telefono || '';
+  document.getElementById('edit-email').value = reserva.email || '';
+
+  var modal = new bootstrap.Modal(document.getElementById('modalEditar'));
+  modal.show();
+}
+
+function extraerHoras(texto) {
+  if (!texto) return '09:00';
+  texto = texto.toString().trim();
+  // Si ya tiene formato HH:mm
+  var match = texto.match(/(\d{1,2}):(\d{2})/);
+  if (match) {
+    var h = match[1].padStart(2, '0');
+    var m = match[2].padStart(2, '0');
+    // Detectar PM
+    if (texto.toLowerCase().includes('pm') && parseInt(h) < 12) {
+      h = String(parseInt(h) + 12).padStart(2, '0');
+    }
+    return h + ':' + m;
+  }
+  return '09:00';
+}
+
+async function guardarEdicion() {
+  var fila = parseInt(document.getElementById('edit-fila').value);
+  var motivo = document.getElementById('edit-motivo').value.trim();
+  var fecha = document.getElementById('edit-fecha').value;
+  var horaInicio = document.getElementById('edit-horaInicio').value;
+  var horaFin = document.getElementById('edit-horaFin').value;
+  var autoridad = document.getElementById('edit-autoridad').value.trim();
+  var responsable = document.getElementById('edit-responsable').value.trim();
+  var asistentes = document.getElementById('edit-asistentes').value.trim();
+  var dependencias = document.getElementById('edit-dependencias').value.trim();
+  var requerimientos = document.getElementById('edit-requerimientos').value.trim();
+  var telefono = document.getElementById('edit-telefono').value.trim();
+  var email = document.getElementById('edit-email').value.trim();
+
+  if (!motivo || !fecha || !horaInicio || !horaFin) {
+    mostrarToast('warning', 'Completá todos los campos');
+    return;
+  }
+
+  var modal = bootstrap.Modal.getInstance(document.getElementById('modalEditar'));
+  modal.hide();
+
+  var res = await enviarAccion('editarReserva', {
+    fila: fila,
+    datos: {
+      motivo: motivo,
+      fecha: fecha,
+      horaInicio: horaInicio,
+      horaFin: horaFin,
+      autoridad: autoridad,
+      responsable: responsable,
+      asistentes: asistentes,
+      dependencias: dependencias,
+      requerimientos: requerimientos,
+      telefono: telefono,
+      email: email
+    }
+  });
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
+  cargarPanel();
 }
 
 cargarPanel();
