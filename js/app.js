@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxN6mKza1EGw2Kev4B6Bn1Vwkvka0bPzKDltSK9nfNSNbmHo37TMoW-neIOwxzBzB6k/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyyoy86DXi0hp2p5rc_Mrvik1MBO9CezNhn1XfvdP2GzIkWiMSyD0_PssjqmHV0wQgr/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -245,7 +245,8 @@ function toggleMotivo(fila) {
 async function aprobar(fila) {
   if (!confirm('¿Aprobar esta reserva y crearla en el Calendar?')) return;
   var res = await enviarAccion('aprobarReserva', { fila: fila });
-  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
+  var tipo = res.mensaje.indexOf('rechazada') !== -1 ? 'warning' : (res.exito ? 'success' : 'danger');
+  mostrarToast(tipo, res.mensaje);
   cargarPanel();
 }
 
