@@ -78,6 +78,15 @@ function cargarPanel() {
   cargarDatos().then(function(data) { if (data) renderPanel(data); });
 }
 
+async function actualizarPanel() {
+  var btn = document.getElementById('btn-actualizar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Actualizando...';
+  await cargarDatos().then(function(data) { if (data) renderPanel(data); });
+  btn.disabled = false;
+  btn.innerHTML = '↻ Actualizar';
+}
+
 function parsearFecha(ddmmyyyy) {
   var p = ddmmyyyy.split('/');
   return new Date(p[2], p[1] - 1, p[0]);
