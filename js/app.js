@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxFc3Fztt8d7_0r0icI0E6AdUd6BNVHGWFsH86aJAfs_voBrKlGKGy0FqLEZK6yPOzA/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzBMdxQBkB-vlg3NkqinyLg8TljSrASNEaTss4rs00YU8fTw53sJiiWj2lvDKaW0SVi/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -184,6 +184,8 @@ function pintarLista() {
     var cb = el.indexOf('pendiente') !== -1 ? 'pendiente' : el.indexOf('aprobada') !== -1 ? 'aprobada' : el.indexOf('cancelada') !== -1 ? 'cancelada' : er ? 'rechazada' : '';
     var ef = catFecha === 'hoy' ? '<span class="badge bg-warning text-dark ms-2">HOY</span>' : catFecha === 'pasada' ? '<span class="fecha-tag pasada">Ya pasó</span>' : catFecha === 'manana' ? '<span class="fecha-tag manana">Mañana</span>' : '';
     var ep = el.indexOf('pendiente') !== -1;
+    var ec = el.indexOf('cancelada') !== -1;
+    var er = el.indexOf('rechazada') !== -1;
     var b = '';
     if (ep) {
       b = '<button class="btn btn-sm btn-success" onclick="aprobar(' + r.fila + ')">Aprobar</button>' +
@@ -193,6 +195,8 @@ function pintarLista() {
       b = '<button class="btn btn-sm btn-outline-danger" onclick="cancelar(' + r.fila + ')">Cancelar</button>' +
           '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
           '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
+    } else if (ec || er) {
+      b = '<button class="btn btn-sm btn-outline-success" onclick="reactivar(' + r.fila + ')">Reactivar</button>';
     }
     b += '<button class="btn btn-sm btn-outline-secondary" onclick="eliminar(' + r.fila + ')">Eliminar</button>';
     var ob = er ? ' onclick="toggleMotivo(' + r.fila + ')"' : '';
@@ -279,6 +283,13 @@ async function cancelar(fila) {
 async function eliminar(fila) {
   if (!confirm('¿ELIMINAR esta fila por completo? No se puede deshacer.')) return;
   var res = await enviarAccion('eliminarDefinitivo', { fila: fila });
+  mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
+  cargarPanel();
+}
+
+async function reactivar(fila) {
+  if (!confirm('¿Reactivar esta reserva? Volverá a estado Pendiente.')) return;
+  var res = await enviarAccion('reactivarReserva', { fila: fila });
   mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
   cargarPanel();
 }
