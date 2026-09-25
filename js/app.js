@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbzBMdxQBkB-vlg3NkqinyLg8TljSrASNEaTss4rs00YU8fTw53sJiiWj2lvDKaW0SVi/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxqmz4YDevcRPok91f7cJHmY5oERQ7CeJ5y72Smby9A1IqEyhpKLdg14B6a0E-mNeg1/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -11,6 +11,7 @@ const MOTIVOS_RECHAZO = [
 
 let TODAS_LAS_RESERVAS = [];
 let FILTRO_ACTUAL = null;
+let FECHA_BUSCAR = null;
 let TEXTO_BUSCAR = '';
 let pagActual = 1;
 
@@ -121,8 +122,42 @@ function filtrarPor(filtro) {
   } else {
     pf.style.display = 'none';
   }
+  limpiarFecha();
   TEXTO_BUSCAR = '';
   document.getElementById('buscador').value = '';
+  pagActual = 1;
+  pintarLista();
+}
+
+function buscarFecha(valor) {
+  if (valor) {
+    var p = valor.split('-');
+    FECHA_BUSCAR = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+    document.getElementById('btn-clear-fecha').style.display = '';
+  } else {
+    FECHA_BUSCAR = null;
+    document.getElementById('btn-clear-fecha').style.display = 'none';
+  }
+  FILTRO_ACTUAL = null;
+  document.querySelectorAll('.kpi-card').forEach(function(c) { c.classList.remove('activo'); });
+  document.getElementById('filtro-activo').style.display = 'none';
+  pagActual = 1;
+  pintarLista();
+}
+
+function limpiarFecha() {
+  FECHA_BUSCAR = null;
+  document.getElementById('fecha-buscar').value = '';
+  document.getElementById('btn-clear-fecha').style.display = 'none';
+  document.getElementById('fecha-contador').style.display = 'none';
+  pagActual = 1;
+  pintarLista();
+}
+
+function limpiarFecha() {
+  FECHA_BUSCAR = null;
+  document.getElementById('fecha-buscar').value = '';
+  document.getElementById('btn-clear-fecha').style.display = 'none';
   pagActual = 1;
   pintarLista();
 }
@@ -134,6 +169,10 @@ function getVisibles() {
   var mi = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   var visibles = TODAS_LAS_RESERVAS.filter(function(r) {
     if (!cumpleFiltro(r, hoy, manana, sl, mi)) return false;
+    if (FECHA_BUSCAR) {
+      var fr = parsearFecha(r.fecha);
+      if (fr.getTime() !== FECHA_BUSCAR.getTime()) return false;
+    }
     if (!TEXTO_BUSCAR) return true;
     var busq = TEXTO_BUSCAR.toLowerCase();
     return (r.motivo + ' ' + r.autoridad + ' ' + r.responsable + ' ' + r.estado + ' ' + (r.numeroSolicitud || '') + ' ' + (r.dependencias || '') + ' ' + (r.email || '')).toLowerCase().indexOf(busq) !== -1;
@@ -154,6 +193,13 @@ function getVisibles() {
 function pintarLista() {
   var visibles = getVisibles();
   var total = visibles.length;
+  var contador = document.getElementById('fecha-contador');
+  if (FECHA_BUSCAR) {
+    contador.style.display = '';
+    contador.textContent = total;
+  } else {
+    contador.style.display = 'none';
+  }
   var porPagina = parseInt(document.getElementById('pag-tamanio').value);
   var totalPaginas = Math.max(1, Math.ceil(total / porPagina));
   if (pagActual > totalPaginas) pagActual = totalPaginas;
