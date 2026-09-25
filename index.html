@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Panel de Reservas - Sala DTRA</title>
@@ -21,6 +20,9 @@
         <button id="btn-actualizar" class="btn btn-outline-secondary fw-bold shadow-sm" onclick="actualizarPanel()">
           ↻ Actualizar
         </button>
+        <a href="Calendario.html" class="btn btn-primary fw-bold shadow-sm">
+          📅 Calendario
+        </a>
         <a href="https://docs.google.com/forms/d/e/1FAIpQLSdcVYfo6ZLkLOAKmgLQZTPKdm0IA8gfudaLdHBG1w_-cyk_Pg/viewform" target="_blank" class="btn btn-success fw-bold shadow-sm">
           + Nueva Reserva
         </a>
@@ -100,7 +102,15 @@
     </div>
 
     <div id="buscador-box" class="mb-3">
-      <input type="text" id="buscador" class="form-control form-control-sm" placeholder="Buscar por motivo, autoridad, responsable, N° solicitud..." oninput="buscar(this.value)">
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="date-search-wrapper">
+          <span class="date-search-icon">📅</span>
+          <input type="date" id="fecha-buscar" class="date-search-input" onchange="buscarFecha(this.value)">
+          <button id="btn-clear-fecha" class="date-search-clear" onclick="limpiarFecha()" style="display:none;">✕</button>
+        </div>
+        <span id="fecha-contador" class="date-counter" style="display:none;">0</span>
+        <input type="text" id="buscador" class="form-control form-control-sm" style="max-width:400px;" placeholder="Buscar por motivo, autoridad, responsable..." oninput="buscar(this.value)">
+      </div>
     </div>
 
     <div id="controles-paginacion" class="d-flex justify-content-between align-items-center mb-3" style="display:none;">
