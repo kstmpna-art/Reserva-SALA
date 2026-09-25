@@ -83,3 +83,69 @@ body {
 .page-link {
   cursor: pointer;
 }
+
+/* Date Search */
+.date-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 38px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.date-search-wrapper:focus-within {
+  border-color: #14213d;
+  box-shadow: 0 0 0 3px rgba(20,33,61,0.08);
+}
+.date-search-icon {
+  font-size: 16px;
+  margin-right: 8px;
+  opacity: 0.6;
+}
+.date-search-input {
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #14213d;
+  background: transparent;
+  width: 150px;
+  cursor: pointer;
+}
+.date-search-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.date-search-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+.date-search-clear {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 4px;
+  border-radius: 50%;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.date-search-clear:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+.date-counter {
+  font-size: 11px;
+  font-weight: 700;
+  color: #14213d;
+  background: #e8ecf1;
+  padding: 3px 9px;
+  border-radius: 8px;
+  line-height: 1.2;
+}
