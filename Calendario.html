@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendario General - Sala DTRA</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/estilo-calendario.css">
+</head>
+<body>
+
+  <div class="container py-4">
+
+    <!-- Header -->
+    <div class="cal-header mb-4">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+          <h1 class="cal-title">Calendario General</h1>
+          <div class="cal-subtitle">Eventos del calendario institucional</div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="index.html" class="btn cal-btn-outline">← Panel</a>
+          <button id="btn-actualizar-cal" class="btn cal-btn-outline" onclick="recargar()">↻ Actualizar</button>
+          <button class="btn cal-btn-primary" onclick="abrirModalCrear()">+ Nuevo Evento</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="cargando" class="text-center py-5">
+      <div class="cal-spinner"></div>
+      <div class="cal-loading-text">Cargando eventos...</div>
+    </div>
+
+    <!-- Filtros de período -->
+    <div id="filtros-periodo" class="cal-filters mb-4" style="display:none;">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="cal-filter-label">Período:</span>
+        <div class="cal-period-btns">
+          <button type="button" class="cal-period-btn active" data-periodo="hoy" onclick="cambiarPeriodo('hoy')">Hoy</button>
+          <button type="button" class="cal-period-btn" data-periodo="semana" onclick="cambiarPeriodo('semana')">Semana</button>
+          <button type="button" class="cal-period-btn" data-periodo="mes" onclick="cambiarPeriodo('mes')">Mes</button>
+          <button type="button" class="cal-period-btn" data-periodo="anio" onclick="cambiarPeriodo('anio')">Año</button>
+        </div>
+        <span class="cal-period-info" id="periodo-info"></span>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div id="kpis-calendario" class="row g-3 mb-4" style="display:none;">
+      <div class="col-6 col-md-3">
+        <div class="cal-kpi-card" data-tipo="sala" onclick="filtrarTipo('sala')">
+          <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#f093fb,#f5576c);">📋</div>
+          <div class="cal-kpi-num" id="kpi-sala">0</div>
+          <div class="cal-kpi-label">Sala de Situación</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="cal-kpi-card" data-tipo="reuniones" onclick="filtrarTipo('reuniones')">
+          <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#4facfe,#00f2fe);">🤝</div>
+          <div class="cal-kpi-num" id="kpi-reuniones">0</div>
+          <div class="cal-kpi-label">Reuniones</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="cal-kpi-card" data-tipo="cumpleanos" onclick="filtrarTipo('cumpleanos')">
+          <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#fa709a,#fee140);">🎂</div>
+          <div class="cal-kpi-num" id="kpi-cumpleanos">0</div>
+          <div class="cal-kpi-label">Cumpleaños</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="cal-kpi-card" data-tipo="capacitaciones" onclick="filtrarTipo('capacitaciones')">
+          <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#a18cd1,#fbc2eb);">📚</div>
+          <div class="cal-kpi-num" id="kpi-capacitaciones">0</div>
+          <div class="cal-kpi-label">Capacitaciones</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="filtro-activo" class="mb-3" style="display:none;">
+      <span class="cal-filter-active-text">Mostrando: <strong id="filtro-nombre"></strong></span>
+      <button class="cal-btn-clear" onclick="limpiarFiltroTipo()">Ver todos</button>
+    </div>
+
+    <!-- Buscadores -->
+    <div class="cal-search-bar mb-3">
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="date-search-wrapper">
+          <span class="date-search-icon">📅</span>
+          <input type="date" id="fecha-buscar" class="date-search-input" onchange="buscarFechaCal(this.value)">
+          <button id="btn-clear-fecha" class="date-search-clear" onclick="limpiarFechaCal()" style="display:none;">✕</button>
+        </div>
+        <span id="fecha-contador" class="date-counter" style="display:none;">0</span>
+        <input type="text" id="buscador" class="cal-search-input" placeholder="Buscar por título, descripción, ubicación..." oninput="buscarEventos(this.value)">
+      </div>
+    </div>
+
+    <!-- Paginación -->
+    <div id="controles-paginacion" class="d-flex justify-content-between align-items-center mb-3" style="display:none;">
+      <div class="cal-results-text">
+        Mostrando <span id="pag-desde">0</span>-<span id="pag-hasta">0</span> de <span id="pag-total">0</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <label class="cal-results-text mb-0">Por página:</label>
+        <select id="pag-tamanio" class="cal-select" onclick="event.stopPropagation()" onchange="cambiarPagina(1)">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="lista-eventos"></div>
+    <div id="vacio" class="text-center py-5 cal-empty" style="display:none;">No hay eventos para mostrar.</div>
+
+    <nav id="paginador" class="mt-3" style="display:none;">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item"><button class="page-link" onclick="cambiarPagina(pagActual - 1)">Anterior</button></li>
+        <li id="pag-paginas" class="page-item d-flex gap-1 px-2"></li>
+        <li class="page-item"><button class="page-link" onclick="cambiarPagina(pagActual + 1)">Siguiente</button></li>
+      </ul>
+    </nav>
+
+  </div>
+
+  <!-- Modal Ver Evento -->
+  <div class="modal fade" id="modalVerEvento" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content cal-modal">
+        <div class="modal-header" id="modal-ver-header">
+          <h5 class="modal-title fw-bold">Detalle del Evento</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p><strong>Tipo:</strong> <span id="ver-tipo" class="badge"></span></p>
+          <p><strong>Título:</strong> <span id="ver-titulo"></span></p>
+          <p><strong>Fecha:</strong> <span id="ver-fecha"></span></p>
+          <p><strong>Horario:</strong> <span id="ver-horario"></span></p>
+          <p id="ver-descripcion-container"><strong>Descripción:</strong> <span id="ver-descripcion"></span></p>
+          <p id="ver-ubicacion-container"><strong>Ubicación:</strong> <span id="ver-ubicacion"></span></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn cal-btn-danger" onclick="eliminarEvento()">Eliminar</button>
+          <button type="button" class="btn cal-btn-outline" data-bs-dismiss="modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Crear Evento -->
+  <div class="modal fade" id="modalCrearEvento" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content cal-modal">
+        <div class="modal-header cal-modal-create">
+          <h5 class="modal-title fw-bold">Nuevo Evento</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="cal-label">Tipo de evento *</label>
+            <select class="cal-input" id="crear-tipo" onchange="toggleTipoCustom()">
+              <option value="Reunión">Reunión</option>
+              <option value="Capacitación">Capacitación</option>
+              <option value="Audiencia">Audiencia</option>
+              <option value="Presentación">Presentación</option>
+              <option value="Compromiso">Compromiso</option>
+              <option value="Viaje">Viaje</option>
+              <option value="Cumpleaños">Cumpleaños</option>
+              <option value="Otro">Otro...</option>
+            </select>
+          </div>
+          <div class="mb-3" id="tipo-custom-box" style="display:none;">
+            <label class="cal-label">Escribí el tipo *</label>
+            <input type="text" class="cal-input" id="crear-tipoCustom" placeholder="Ej: Ejercicio, Simulacro, etc.">
+          </div>
+          <div class="mb-3">
+            <label class="cal-label">Título *</label>
+            <input type="text" class="cal-input" id="crear-titulo" required>
+          </div>
+          <div class="mb-3">
+            <label class="cal-label">Fecha *</label>
+            <input type="date" class="cal-input" id="crear-fecha" required>
+          </div>
+          <div id="crear-horarios-row">
+            <div class="row">
+              <div class="col-6 mb-3">
+                <label class="cal-label">Hora inicio *</label>
+                <input type="time" class="cal-input" id="crear-horaInicio" required>
+              </div>
+              <div class="col-6 mb-3">
+                <label class="cal-label">Hora fin *</label>
+                <input type="time" class="cal-input" id="crear-horaFin" required>
+              </div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="cal-label">Descripción</label>
+            <textarea class="cal-input" id="crear-descripcion" rows="3"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="cal-label">Ubicación</label>
+            <input type="text" class="cal-input" id="crear-ubicacion">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn cal-btn-outline" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn cal-btn-primary" onclick="guardarEvento()">Crear Evento</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index:9999;"></div>
+
+  <script src="js/calendario.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
