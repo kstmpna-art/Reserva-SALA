@@ -1,4 +1,4 @@
-var API_URL = 'https://script.google.com/macros/s/AKfycbzNs2Kg3F_zzsgXK4YwISrouGSdIUOXHDEuVCG1rP_yAK83E1wgTrpSN4tEn4k33Jda/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbxvl9L-VvYna_bF44QGplTOn9opVFPq-jHK-6LCz-hPoOYVZPmJbPOPRRw0fzZkAuA8/exec';
 
 var todosLosEventos = [];
 var eventosFiltrados = [];
@@ -225,7 +225,135 @@ function aplicarFiltros() {
   });
 
   pagActual = 1;
+  renderizarGantt();
   renderizarLista();
+}
+
+function renderizarGantt() {
+  var cont = document.getElementById('gantt-dia');
+  if (!FECHA_BUSCAR_CAL || eventosFiltrados.length === 0) {
+    cont.style.display = 'none';
+    cont.innerHTML = '';
+    return;
+  }
+
+  // Separar eventos all-day de los que tienen hora
+  var todoElDia = [];
+  var conHora = [];
+  for (var i = 0; i < eventosFiltrados.length; i++) {
+    var ev = eventosFiltrados[i];
+    if (ev.todoElDia || ev.inicio.indexOf('T') === -1) todoElDia.push(ev);
+    else conHora.push(ev);
+  }
+
+  // Rango adaptivo: hora más temprana a más tardía, redondeado a horas pares
+  var minHora = 24, maxHora = 0;
+  function horasDec(fechaStr) {
+    var t = fechaStr.split('T')[1];
+    if (!t) return null;
+    var p = t.split(':');
+    return parseInt(p[0], 10) + parseInt(p[1], 10) / 60;
+  }
+  for (var i = 0; i < conHora.length; i++) {
+    var hi = horasDec(conHora[i].inicio);
+    var hf = horasDec(conHora[i].fin);
+    if (hi === null) continue;
+    if (hf === null || hf <= hi) hf = hi + 1;
+    conHora[i]._hi = hi;
+    conHora[i]._hf = hf;
+    if (hi < minHora) minHora = hi;
+    if (hf > maxHora) maxHora = hf;
+  }
+  if (minHora >= maxHora) { minHora = 8; maxHora = 22; }
+  var rangoIni = Math.max(0, Math.floor(minHora / 2) * 2);
+  var rangoFin = Math.min(24, Math.ceil(maxHora / 2) * 2);
+  if (rangoFin - rangoIni < 2) rangoFin = Math.min(24, rangoIni + 2);
+  var totalHoras = rangoFin - rangoIni;
+
+  // Asignar lanes (carriles) a eventos que se solapan
+  conHora.sort(function(a, b) { return a._hi - b._hi; });
+  var lanes = []; // lanes[l] = hora de fin del último evento del carril
+  var conflictos = {};
+  for (var i = 0; i < conHora.length; i++) {
+    var ev = conHora[i];
+    var lane = -1;
+    for (var l = 0; l < lanes.length; l++) {
+      if (lanes[l] <= ev._hi + 0.01) { lane = l; break; }
+    }
+    if (lane === -1) { lane = lanes.length; lanes.push(0); }
+    lanes[lane] = ev._hf;
+    ev._lane = lane;
+  }
+  // Detectar conflictos: solape real entre eventos (distinto id)
+  for (var i = 0; i < conHora.length; i++) {
+    for (var j = i + 1; j < conHora.length; j++) {
+      var a = conHora[i], b = conHora[j];
+      if (a._hi < b._hf - 0.01 && b._hi < a._hf - 0.01) {
+        conflictos[a.id] = true;
+        conflictos[b.id] = true;
+      }
+    }
+  }
+
+  // Encabezado con escala de horas
+  var pasos = totalHoras > 12 ? 2 : 1;
+  var html = '<div class="gantt-titulo">📅 Horarios del día — ' +
+    (FECHA_BUSCAR_CAL.getDate() + '/' + (FECHA_BUSCAR_CAL.getMonth() + 1) + '/' + FECHA_BUSCAR_CAL.getFullYear()) +
+    '</div>';
+  html += '<div class="gantt-eje">';
+  html += '<div class="gantt-eje-espaciador"></div>';
+  html += '<div class="gantt-eje-marcas">';
+  for (var h = rangoIni; h <= rangoFin; h += pasos) {
+    var pct = ((h - rangoIni) / totalHoras) * 100;
+    html += '<span class="gantt-marca" style="left:' + pct + '%;">' + (h < 10 ? '0' : '') + h + ':00</span>';
+  }
+  html += '</div></div>';
+
+  // Fila all-day arriba
+  for (var i = 0; i < todoElDia.length; i++) {
+    var ev = todoElDia[i];
+    var tipo = clasificarEvento(ev);
+    var color = asignarColor(tipo);
+    html += '<div class="gantt-fila gantt-fila-allday">';
+    html += '<div class="gantt-fila-etiqueta">Todo el día</div>';
+    html += '<div class="gantt-pista">';
+    html += '<div class="gantt-barra gantt-barra-allday' + (conflictos[ev.id] ? ' conflicto' : '') + '" ' +
+      'style="background:' + color.fondo + ';" onclick="verDetalle(\'' + ev.id.replace(/'/g, "\\'") + '\')" ' +
+      'title="' + (ev.titulo || '').replace(/"/g, '&quot;') + '">' +
+      '🎂 ' + (ev.titulo || 'Sin título') + '</div>';
+    html += '</div></div>';
+  }
+
+  // Filas por carril
+  for (var l = 0; l < lanes.length; l++) {
+    html += '<div class="gantt-fila">';
+    html += '<div class="gantt-fila-etiqueta"></div>';
+    html += '<div class="gantt-pista">';
+    // Líneas de grilla horaria
+    for (var h = rangoIni; h <= rangoFin; h += pasos) {
+      var pct = ((h - rangoIni) / totalHoras) * 100;
+      html += '<div class="gantt-linea" style="left:' + pct + '%;"></div>';
+    }
+    for (var i = 0; i < conHora.length; i++) {
+      var ev = conHora[i];
+      if (ev._lane !== l) continue;
+      var tipo = clasificarEvento(ev);
+      var color = asignarColor(tipo);
+      var izq = ((ev._hi - rangoIni) / totalHoras) * 100;
+      var ancho = ((ev._hf - ev._hi) / totalHoras) * 100;
+      var horaTxt = formatearHora(ev.inicio) + ' a ' + formatearHora(ev.fin);
+      html += '<div class="gantt-barra' + (conflictos[ev.id] ? ' conflicto' : '') + '" ' +
+        'style="left:' + izq + '%;width:' + ancho + '%;background:' + color.fondo + ';" ' +
+        'onclick="verDetalle(\'' + ev.id.replace(/'/g, "\\'") + '\')" ' +
+        'title="' + (ev.titulo || '').replace(/"/g, '&quot;') + ' — ' + horaTxt + '">' +
+        '<span class="gantt-barra-texto">' + (ev.titulo || 'Sin título') + '</span>' +
+        '<span class="gantt-barra-hora">' + horaTxt + '</span></div>';
+    }
+    html += '</div></div>';
+  }
+
+  cont.innerHTML = html;
+  cont.style.display = '';
 }
 
 function renderizarLista() {
@@ -391,6 +519,15 @@ function formatearHora(horaStr) {
   return partes[0] + ':' + partes[1];
 }
 
+function formatearFechaInput(fechaStr) {
+  if (!fechaStr) return '';
+  var f = parsearFecha(fechaStr);
+  var year = f.getFullYear();
+  var month = ('0' + (f.getMonth() + 1)).slice(-2);
+  var day = ('0' + f.getDate()).slice(-2);
+  return year + '-' + month + '-' + day;
+}
+
 function verDetalle(id) {
   var ev = null;
   for (var i = 0; i < todosLosEventos.length; i++) {
@@ -471,9 +608,12 @@ async function guardarEvento() {
   var partesFecha = fecha.split('-');
   var inicio, fin;
 
-  if (tipoSelect === 'Cumpleaños') {
+  var debugForm = 'tipo=[' + tipoSelect + '] horaInicio=[' + horaInicio + '] horaFin=[' + horaFin + ']';
+
+  if (!horaInicio && !horaFin) {
+    // Sin horarios: all-day 00:00 a 23:59
     inicio = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]), 0, 0);
-    fin = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]) + 1, 0, 0);
+    fin = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]), 23, 59);
   } else {
     if (!horaInicio || !horaFin) {
       mostrarToast('warning', 'Completá los horarios');
@@ -491,6 +631,18 @@ async function guardarEvento() {
     }
   }
 
+  // Determinar si es edición o creación nueva
+  var esEdicion = !!eventoSeleccionadoId;
+  var accion = esEdicion ? 'editarEventoCalendario' : 'crearEventoCalendario';
+
+  // Datos originales para fallback de búsqueda
+  var evOriginal = null;
+  if (esEdicion) {
+    for (var i = 0; i < todosLosEventos.length; i++) {
+      if (todosLosEventos[i].id === eventoSeleccionadoId) { evOriginal = todosLosEventos[i]; break; }
+    }
+  }
+
   var modal = bootstrap.Modal.getInstance(document.getElementById('modalCrearEvento'));
   modal.hide();
 
@@ -499,19 +651,23 @@ async function guardarEvento() {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
-        action: 'crearEventoCalendario',
+        action: accion,
         datos: {
           titulo: tituloCompleto,
           inicio: inicio.toISOString(),
           fin: fin.toISOString(),
           descripcion: descripcion,
-          ubicacion: ubicacion
+          ubicacion: ubicacion,
+          eventoId: esEdicion ? eventoSeleccionadoId : undefined,
+          tituloOriginal: evOriginal ? evOriginal.titulo : undefined,
+          inicioOriginal: evOriginal ? evOriginal.inicio : undefined
         }
       })
     });
     var data = await res.json();
-    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
+    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje + ' || FORM: ' + debugForm);
     if (data.exito) recargar();
+    eventoSeleccionadoId = null;
   } catch (err) {
     mostrarToast('danger', 'Error de conexión');
   }
@@ -525,12 +681,22 @@ async function eliminarEvento() {
   modal.hide();
 
   try {
+    // Obtenemos el evento para saber su calendario
+    var ev = null;
+    for (var i = 0; i < todosLosEventos.length; i++) {
+      if (todosLosEventos[i].id === eventoSeleccionadoId) { ev = todosLosEventos[i]; break; }
+    }
+    
+    var calendarioId = ev ? ev.calendario : null;
+    
     var res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
         action: 'eliminarEventoCalendario',
-        eventoId: eventoSeleccionadoId
+        eventoId: eventoSeleccionadoId,
+        titulo: ev ? ev.titulo : null,
+        inicio: ev ? ev.inicio : null
       })
     });
     var data = await res.json();
@@ -541,6 +707,64 @@ async function eliminarEvento() {
   }
   eventoSeleccionadoId = null;
 }
+
+async function editarEvento() {
+  if (!eventoSeleccionadoId) return;
+
+  // Cargar datos del evento seleccionado
+  var ev = null;
+  for (var i = 0; i < todosLosEventos.length; i++) {
+    if (todosLosEventos[i].id === eventoSeleccionadoId) { ev = todosLosEventos[i]; break; }
+  }
+  if (!ev) return;
+
+  // Determinar tipo de evento para el select
+  var tipo = clasificarEvento(ev);
+  var tipoMapa = {
+    'cumpleanos': 'Cumpleaños',
+    'reuniones': 'Reunión',
+    'capacitaciones': 'Capacitación',
+    'audiencias': 'Audiencia',
+    'sala': 'Reunión',
+    'compromisos': 'Compromiso',
+    'viajes': 'Viaje',
+    'otros': 'Otro'
+  };
+  document.getElementById('crear-tipo').value = tipoMapa[tipo] || 'Otro';
+
+  // Si es "Otro", mostrar campo custom con el tipo original
+  if (!tipoMapa[tipo] || tipoMapa[tipo] === 'Otro') {
+    document.getElementById('crear-tipo').value = 'Otro';
+    document.getElementById('crear-tipoCustom').value = ev.calendario || 'Otro';
+  }
+  toggleTipoCustom();
+
+  // Título: quitar el prefijo "Tipo - " si existe
+  var titulo = ev.titulo || '';
+  var match = titulo.match(/^[^-]+ - (.+)$/);
+  if (match) titulo = match[1];
+  document.getElementById('crear-titulo').value = titulo;
+
+  // Fecha
+  document.getElementById('crear-fecha').value = formatearFechaInput(ev.inicio);
+
+  // Horarios (all-day eventos no tienen hora)
+  var horaInicio = formatearHora(ev.inicio);
+  var horaFin = formatearHora(ev.fin);
+  document.getElementById('crear-horaInicio').value = horaInicio || '';
+  document.getElementById('crear-horaFin').value = horaFin || '';
+
+  document.getElementById('crear-descripcion').value = ev.descripcion || '';
+  document.getElementById('crear-ubicacion').value = ev.ubicacion || '';
+
+  // Mostrar modal y ocultar el de ver detalle
+  var modalVer = bootstrap.Modal.getInstance(document.getElementById('modalVerEvento'));
+  modalVer.hide();
+  var modalCrear = new bootstrap.Modal(document.getElementById('modalCrearEvento'));
+  modalCrear.show();
+}
+
+// ... rest of the file
 
 function mostrarToast(tipo, mensaje) {
   var container = document.getElementById('toast-container');
