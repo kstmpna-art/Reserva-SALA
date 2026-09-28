@@ -96,6 +96,9 @@
       </div>
     </div>
 
+    <!-- Diagrama de Gantt del día -->
+    <div id="gantt-dia" class="gantt-contenedor" style="display:none;"></div>
+
     <!-- Paginación -->
     <div id="controles-paginacion" class="d-flex justify-content-between align-items-center mb-3" style="display:none;">
       <div class="cal-results-text">
@@ -143,6 +146,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn cal-btn-danger" onclick="eliminarEvento()">Eliminar</button>
+          <button type="button" class="btn cal-btn-primary" onclick="editarEvento()">Editar</button>
           <button type="button" class="btn cal-btn-outline" data-bs-dismiss="modal">Cerrar</button>
         </div>
       </div>
