@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxqmz4YDevcRPok91f7cJHmY5oERQ7CeJ5y72Smby9A1IqEyhpKLdg14B6a0E-mNeg1/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxvl9L-VvYna_bF44QGplTOn9opVFPq-jHK-6LCz-hPoOYVZPmJbPOPRRw0fzZkAuA8/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
