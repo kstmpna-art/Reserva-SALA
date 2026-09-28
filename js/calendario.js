@@ -1095,3 +1095,561 @@ function mostrarToast(tipo, mensaje) {
   container.insertAdjacentHTML('beforeend', html);
   setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 3500);
 }
+
+// ============ EXPORTACIÓN A PDF ============
+var PDF_VISTA = 'dia';
+var PDF_DOC = null;
+var PDF_BLOB_URL = null;
+var PDF_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+var PDF_DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+var PDF_DIAS_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+var PDF_INI_DIA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+var PDF_TIPOS_ORDEN = ['sala', 'reuniones', 'capacitaciones', 'cumpleanos', 'audiencias', 'compromisos', 'viajes', 'feriados', 'otros'];
+
+function pdfRgb(hex) {
+  var h = hex.replace('#', '');
+  return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
+}
+
+function pdfClave(f) {
+  return f.getFullYear() + '-' + pad2(f.getMonth() + 1) + '-' + pad2(f.getDate());
+}
+
+function pdfFechaLarga(f) {
+  return PDF_DIAS[f.getDay()] + ' ' + f.getDate() + ' de ' + PDF_MESES[f.getMonth()] + ' de ' + f.getFullYear();
+}
+
+function pdfFechaCorta(f) {
+  return f.getDate() + '/' + (f.getMonth() + 1) + '/' + f.getFullYear();
+}
+
+function pdfBase() {
+  var b = FECHA_BUSCAR_CAL ? new Date(FECHA_BUSCAR_CAL.getTime()) : new Date();
+  return new Date(b.getFullYear(), b.getMonth(), b.getDate());
+}
+
+function pdfInicioSemana(f) {
+  var d = new Date(f.getFullYear(), f.getMonth(), f.getDate());
+  var dow = d.getDay();
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return d;
+}
+
+function pdfRangoVista() {
+  var b = pdfBase();
+  if (PDF_VISTA === 'dia') {
+    return { desde: b, hasta: new Date(b.getTime()) };
+  }
+  if (PDF_VISTA === 'semana') {
+    var d = pdfInicioSemana(b);
+    var u = new Date(d.getTime());
+    u.setDate(u.getDate() + 6);
+    return { desde: d, hasta: u };
+  }
+  if (PDF_VISTA === 'mes') {
+    return { desde: new Date(b.getFullYear(), b.getMonth(), 1), hasta: new Date(b.getFullYear(), b.getMonth() + 1, 0) };
+  }
+  return { desde: new Date(b.getFullYear(), 0, 1), hasta: new Date(b.getFullYear(), 11, 31) };
+}
+
+function pdfEtiquetaVista() {
+  var r = pdfRangoVista();
+  if (PDF_VISTA === 'dia') return pdfFechaLarga(r.desde);
+  if (PDF_VISTA === 'semana') return 'Semana del ' + pdfFechaCorta(r.desde) + ' al ' + pdfFechaCorta(r.hasta);
+  if (PDF_VISTA === 'mes') return PDF_MESES[r.desde.getMonth()] + ' ' + r.desde.getFullYear();
+  return 'Año ' + r.desde.getFullYear();
+}
+
+function pdfEventosRango(desde, hasta) {
+  var lista = todosLosEventos.filter(function(ev) {
+    if (clasificarEvento(ev) === 'cumpleanos') return false;  // los cumpleaños no se exportan
+    var f = parsearFecha(ev.inicio);
+    if (f.getTime() < desde.getTime() || f.getTime() > hasta.getTime()) return false;
+    if (FILTRO_TIPO && clasificarEvento(ev) !== FILTRO_TIPO) return false;
+    if (TEXTO_BUSQUEDA) {
+      var busq = TEXTO_BUSQUEDA.toLowerCase();
+      var info = ((ev.titulo || '') + ' ' + (ev.descripcion || '') + ' ' + (ev.ubicacion || '')).toLowerCase();
+      if (info.indexOf(busq) === -1) return false;
+    }
+    return true;
+  });
+  lista.sort(function(a, b) { return a.inicio.localeCompare(b.inicio); });
+  return lista;
+}
+
+function pdfMapaDias(lista) {
+  var mapa = {};
+  for (var i = 0; i < lista.length; i++) {
+    var k = formatearFechaInput(lista[i].inicio);
+    if (!mapa[k]) mapa[k] = [];
+    mapa[k].push(lista[i]);
+  }
+  return mapa;
+}
+
+function pdfFiltrosTexto(n) {
+  var partes = [];
+  if (FILTRO_TIPO) partes.push('Tipo: ' + asignarColor(FILTRO_TIPO).texto);
+  if (TEXTO_BUSQUEDA) partes.push('Búsqueda: "' + TEXTO_BUSQUEDA + '"');
+  if (typeof n === 'number') partes.push(n + ' evento' + (n === 1 ? '' : 's'));
+  if (!partes.length) partes.push('Sin filtros activos');
+  return partes.join('   |   ');
+}
+
+function pdfCortar(doc, texto, maxMm) {
+  texto = String(texto == null ? '' : texto);
+  if (!texto) return '';
+  if (doc.getTextWidth(texto) <= maxMm) return texto;
+  var t = texto;
+  while (t.length > 1 && doc.getTextWidth(t + '...') > maxMm) t = t.slice(0, -1);
+  return t + '...';
+}
+
+// Devuelve el texto partido en líneas que entran en el ancho dado (máx. maxLineas).
+// Si no entra completo, la última línea se corta con puntos.
+function pdfAjustar(doc, texto, ancho, maxLineas) {
+  var l = doc.splitTextToSize(String(texto == null ? '' : texto), ancho);
+  if (typeof l === 'string') l = [l];
+  if (l.length <= maxLineas) return l;
+  l = l.slice(0, maxLineas);
+  l[maxLineas - 1] = pdfCortar(doc, l[maxLineas - 1] + '...', ancho);
+  return l;
+}
+
+// En las grillas compactas (Mes/Semana) se elimina el prefijo repetido
+// "Sala de Situación DTRA - ..." porque el color ya indica el tipo.
+function pdfTituloCorto(titulo) {
+  var t = String(titulo == null ? '' : titulo);
+  var baja = t.toLowerCase();
+  var prefijos = ['sala de situación dtra -', 'sala de situacion dtra -', 'sala dtra -',
+                  'sala de situación -', 'sala de situacion -'];
+  for (var i = 0; i < prefijos.length; i++) {
+    var p = prefijos[i];
+    if (baja.indexOf(p) === 0) {
+      var resto = t.substring(p.length).replace(/^[\s:.\-–—]+/, '');
+      if (resto.length > 3) return resto;
+    }
+  }
+  return t;
+}
+
+function pdfCabecera(doc, titulo, subtitulo) {
+  doc.setFillColor(238, 240, 255);
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setFillColor(79, 70, 229);
+  doc.rect(0, 30, 210, 1.2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(30, 27, 75);
+  doc.text(pdfCortar(doc, 'CALENDARIO GENERAL - SALA DE SITUACIÓN DTRA', 190), 10, 13.5);
+  doc.setFontSize(10);
+  doc.setTextColor(79, 70, 229);
+  doc.text(pdfCortar(doc, titulo, 190), 10, 20.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 104, 135);
+  doc.text(pdfCortar(doc, subtitulo, 190), 10, 25.5);
+}
+
+function pdfPie(doc) {
+  var total = doc.internal.getNumberOfPages();
+  var h = new Date();
+  var fecha = pdfFechaCorta(h) + ' ' + pad2(h.getHours()) + ':' + pad2(h.getMinutes());
+  for (var i = 1; i <= total; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(226, 226, 238);
+    doc.line(10, 287, 200, 287);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(130, 134, 160);
+    doc.text('Generado: ' + fecha + ' - Sala de Situación DTRA', 10, 291.5);
+    doc.text('Página ' + i + ' de ' + total, 200, 291.5, { align: 'right' });
+  }
+}
+
+function pdfTarjetaEvento(doc, ev, x, y, ancho) {
+  var tipo = clasificarEvento(ev);
+  var color = asignarColor(tipo);
+  var rgb = pdfRgb(color.fondo);
+  // Título: hasta 2 líneas con salto de línea (no se corta si entra)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  var tit = pdfAjustar(doc, ev.titulo || 'Sin título', ancho - 14, 2);
+  // Descripción/ubicación: hasta 3 líneas
+  var lineasExtra = [];
+  if (ev.ubicacion) lineasExtra.push('Ubicación: ' + ev.ubicacion);
+  if (ev.descripcion) {
+    var dl = doc.splitTextToSize(ev.descripcion, ancho - 26);
+    if (typeof dl === 'string') dl = [dl];
+    var trunco = dl.length > 3;
+    if (trunco) dl = dl.slice(0, 3);
+    for (var i = 0; i < dl.length; i++) lineasExtra.push(dl[i] + (trunco && i === dl.length - 1 ? ' ...' : ''));
+  }
+  // Altura según líneas reales
+  var yExt = 13 + tit.length * 5;
+  var ultima = lineasExtra.length ? (yExt + (lineasExtra.length - 1) * 4.5) : (13 + (tit.length - 1) * 5);
+  var alto = ultima + 4;
+  doc.setDrawColor(226, 226, 238);
+  doc.setFillColor(250, 250, 254);
+  doc.roundedRect(x, y, ancho, alto, 2.5, 2.5, 'FD');
+  doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  doc.roundedRect(x, y, 5, alto, 2.5, 2.5, 'F');
+  doc.rect(x + 2.5, y, 2.5, alto, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+  var hora = formatearHora(ev.inicio);
+  var horaFin = formatearHora(ev.fin);
+  var txtHora = (ev.todoElDia || !hora) ? 'Todo el día' : (hora + (horaFin ? ' a ' + horaFin : ''));
+  doc.text(txtHora, x + 8, y + 6.5);
+  doc.setFontSize(7.5);
+  var bw = doc.getTextWidth(color.texto) + 5;
+  doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  doc.roundedRect(x + ancho - bw - 4, y + 2.6, bw, 5, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.text(color.texto, x + ancho - bw - 1.5, y + 6.4);
+  doc.setFontSize(11);
+  doc.setTextColor(30, 27, 75);
+  for (var t = 0; t < tit.length; t++) doc.text(tit[t], x + 8, y + 13 + t * 5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 104, 125);
+  for (var j = 0; j < lineasExtra.length; j++) {
+    doc.text(lineasExtra[j], x + 8, y + yExt + j * 4.5);
+  }
+  return y + alto + 4;
+}
+
+function pdfLeyenda(doc, y, lista) {
+  if (!document.getElementById('pdf-leyenda').checked) return;
+  var vistos = [];
+  for (var i = 0; i < lista.length; i++) {
+    var t = clasificarEvento(lista[i]);
+    if (vistos.indexOf(t) === -1) vistos.push(t);
+  }
+  if (!vistos.length) return;
+  doc.setDrawColor(226, 226, 238);
+  doc.line(10, y - 5, 200, y - 5);
+  var x = 10;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(90, 94, 120);
+  doc.text('Leyenda:', x, y);
+  x += 17;
+  doc.setFont('helvetica', 'normal');
+  for (var j = 0; j < PDF_TIPOS_ORDEN.length; j++) {
+    var tipo = PDF_TIPOS_ORDEN[j];
+    if (vistos.indexOf(tipo) === -1) continue;
+    var color = asignarColor(tipo);
+    var rgb = pdfRgb(color.fondo);
+    var w = doc.getTextWidth(color.texto) + 9;
+    if (x + w > 200) { x = 10; y += 5.5; }
+    doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+    doc.roundedRect(x, y - 3.4, 3.6, 3.6, 0.9, 0.9, 'F');
+    doc.setTextColor(74, 78, 105);
+    doc.text(color.texto, x + 5, y);
+    x += w;
+  }
+}
+
+function pdfVistaDia(doc) {
+  var r = pdfRangoVista();
+  var lista = pdfEventosRango(r.desde, r.hasta);
+  var conLey = document.getElementById('pdf-leyenda').checked && lista.length > 0;
+  pdfCabecera(doc, pdfFechaLarga(r.desde), pdfFiltrosTexto(lista.length));
+  var y = 40;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(30, 27, 75);
+  doc.text('Eventos del día', 10, y);
+  y += 7;
+  if (!lista.length) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(110, 114, 135);
+    doc.text('No hay eventos para este día con los filtros aplicados.', 10, y);
+    return;
+  }
+  for (var i = 0; i < lista.length; i++) {
+    if (y > 268) {
+      doc.addPage();
+      pdfCabecera(doc, pdfFechaLarga(r.desde) + ' (continuación)', pdfFiltrosTexto(lista.length));
+      y = 40;
+    }
+    y = pdfTarjetaEvento(doc, lista[i], 10, y, 190);
+  }
+  if (conLey && y + 10 < 280) pdfLeyenda(doc, y + 9, lista);
+}
+
+function pdfVistaSemana(doc) {
+  var r = pdfRangoVista();
+  var lista = pdfEventosRango(r.desde, r.hasta);
+  var mapa = pdfMapaDias(lista);
+  var conLey = document.getElementById('pdf-leyenda').checked && lista.length > 0;
+  pdfCabecera(doc, 'Semana del ' + pdfFechaCorta(r.desde) + ' al ' + pdfFechaCorta(r.hasta), pdfFiltrosTexto(lista.length));
+  var x0 = 10, anchoCol = 190 / 7, yHdr = 38, altoHdr = 10, yCuerpo = 50;
+  var pieCuerpo = conLey ? 266 : 281;
+  var hoyClave = pdfClave(new Date());
+  for (var c = 0; c < 7; c++) {
+    var f = new Date(r.desde.getFullYear(), r.desde.getMonth(), r.desde.getDate() + c);
+    var x = x0 + c * anchoCol;
+    var esFinde = c >= 5;
+    var esHoyCol = pdfClave(f) === hoyClave;
+    var evs = mapa[pdfClave(f)] || [];
+    var rgbHdr = esHoyCol ? [245, 158, 11] : (esFinde ? [100, 105, 140] : [79, 70, 229]);
+    doc.setFillColor(rgbHdr[0], rgbHdr[1], rgbHdr[2]);
+    doc.rect(x, yHdr, anchoCol, altoHdr, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(PDF_DIAS_CORTO[c], x + anchoCol / 2, yHdr + 4.5, { align: 'center' });
+    doc.setFontSize(7);
+    var etFecha = f.getDate() + '/' + (f.getMonth() + 1) + (evs.length ? ' (' + evs.length + ')' : '');
+    doc.text(etFecha, x + anchoCol / 2, yHdr + 8.5, { align: 'center' });
+    doc.setDrawColor(226, 226, 238);
+    if (esFinde) doc.setFillColor(247, 247, 251); else doc.setFillColor(255, 255, 255);
+    doc.rect(x, yCuerpo, anchoCol, pieCuerpo - yCuerpo, 'FD');
+    var yE = yCuerpo + 2;
+    var dibujados = 0;
+    for (var i = 0; i < evs.length; i++) {
+      var ev = evs[i];
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      var tit = pdfAjustar(doc, pdfTituloCorto(ev.titulo || 'Sin título'), anchoCol - 5, 4);
+      var bloqueAlto = 7.5 + tit.length * 3.4;
+      if (yE + bloqueAlto > pieCuerpo - 2) break;
+      var rgb = pdfRgb(asignarColor(clasificarEvento(ev)).fondo);
+      doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      doc.roundedRect(x + 1.5, yE, anchoCol - 3, bloqueAlto, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(255, 255, 255);
+      var hora = ev.todoElDia ? 'Todo el día' : (formatearHora(ev.inicio) || 'Todo el día');
+      doc.text(pdfCortar(doc, hora, anchoCol - 5), x + 3, yE + 4.3);
+      for (var t2 = 0; t2 < tit.length; t2++) doc.text(tit[t2], x + 3, yE + 8.0 + t2 * 3.4);
+      yE += bloqueAlto + 1.3;
+      dibujados++;
+    }
+    if (evs.length > dibujados) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(79, 70, 229);
+      doc.text('+' + (evs.length - dibujados) + ' más', x + 3, Math.min(yE + 4, pieCuerpo - 2));
+    } else if (!evs.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(180, 184, 205);
+      doc.text('—', x + anchoCol / 2, yCuerpo + 8, { align: 'center' });
+    }
+  }
+  if (conLey) pdfLeyenda(doc, 274, lista);
+}
+
+function pdfVistaMes(doc) {
+  var r = pdfRangoVista();
+  var lista = pdfEventosRango(r.desde, r.hasta);
+  var mapa = pdfMapaDias(lista);
+  var mes = r.desde.getMonth(), anio = r.desde.getFullYear();
+  var conLey = document.getElementById('pdf-leyenda').checked && lista.length > 0;
+  pdfCabecera(doc, PDF_MESES[mes] + ' ' + anio, pdfFiltrosTexto(lista.length));
+  var x0 = 10, anchoCol = 190 / 7, yHdr = 37, altoHdr = 6;
+  for (var c = 0; c < 7; c++) {
+    var x = x0 + c * anchoCol;
+    doc.setFillColor(79, 70, 229);
+    doc.rect(x, yHdr, anchoCol, altoHdr, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(PDF_DIAS_CORTO[c], x + anchoCol / 2, yHdr + 4.3, { align: 'center' });
+  }
+  var leading = (r.desde.getDay() + 6) % 7;
+  var dias = r.hasta.getDate();
+  var filas = Math.ceil((leading + dias) / 7);
+  var yGrid = yHdr + altoHdr + 2;
+  var altoCelda = (272 - yGrid) / filas;
+  var hoy = new Date();
+  for (var d = 1; d <= dias; d++) {
+    var idx = leading + d - 1;
+    var fila = Math.floor(idx / 7), col = idx % 7;
+    var xc = x0 + col * anchoCol, yc = yGrid + fila * altoCelda;
+    var esHoyCelda = d === hoy.getDate() && mes === hoy.getMonth() && anio === hoy.getFullYear();
+    var finde = col >= 5;
+    doc.setDrawColor(226, 226, 238);
+    if (esHoyCelda) doc.setFillColor(255, 244, 214);
+    else if (finde) doc.setFillColor(247, 247, 251);
+    else doc.setFillColor(255, 255, 255);
+    doc.rect(xc, yc, anchoCol, altoCelda, 'FD');
+    if (esHoyCelda) {
+      doc.setFillColor(79, 70, 229);
+      doc.roundedRect(xc + 1.2, yc + 1.2, 7, 5.4, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(255, 255, 255);
+      doc.text('' + d, xc + 4.7, yc + 5.1, { align: 'center' });
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(30, 27, 75);
+      doc.text('' + d, xc + 2, yc + 5.5);
+    }
+    var evs = mapa[pdfClave(new Date(anio, mes, d))] || [];
+    var yE = yc + 7.5;
+    var tope = yc + altoCelda - 1.5;
+    var dib = 0;
+    for (var i = 0; i < evs.length; i++) {
+      var ev = evs[i];
+      var hora = ev.todoElDia ? '' : formatearHora(ev.inicio);
+      var linea = (hora ? hora + ' ' : '') + pdfTituloCorto(ev.titulo || 'Sin título');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      var maxLineas = Math.max(1, Math.floor(((tope - yE) - 0.8) / 4.2));
+      var full = doc.splitTextToSize(linea, anchoCol - 6.4);
+      if (typeof full === 'string') full = [full];
+      var sub;
+      if (full.length > maxLineas) {
+        // No entra completo en el espacio que queda:
+        if (dib > 0) break;  // no el primero → se muestra "+N" y se corta acá
+        sub = pdfAjustar(doc, linea, anchoCol - 6.4, maxLineas);  // primero → se corta sólo si es gigante
+      } else {
+        sub = full;
+      }
+      var hBloque = sub.length * 4.2 + 0.8;
+      var rgb = pdfRgb(asignarColor(clasificarEvento(ev)).fondo);
+      doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      doc.rect(xc + 1.2, yE, 2.4, sub.length * 4.2 - 0.8, 'F');
+      doc.setTextColor(60, 64, 92);
+      for (var s = 0; s < sub.length; s++) doc.text(sub[s], xc + 4.4, yE + 3.1 + s * 4.2);
+      yE += hBloque;
+      dib++;
+    }
+    if (evs.length > dib) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(79, 70, 229);
+      doc.text('+' + (evs.length - dib), xc + anchoCol - 2, yc + 5.5, { align: 'right' });
+    }
+  }
+  if (conLey) pdfLeyenda(doc, 279, lista);
+}
+
+function pdfVistaAnio(doc) {
+  var r = pdfRangoVista();
+  var anio = r.desde.getFullYear();
+  var lista = pdfEventosRango(r.desde, r.hasta);
+  var mapa = pdfMapaDias(lista);
+  var conLey = document.getElementById('pdf-leyenda').checked && lista.length > 0;
+  pdfCabecera(doc, 'Año ' + anio, pdfFiltrosTexto(lista.length));
+  var anchoCaja = 190 / 3, altoCaja = 55, y0 = 37;
+  for (var m = 0; m < 12; m++) {
+    var col = m % 3, fila = Math.floor(m / 3);
+    var x = 10 + col * anchoCaja, y = y0 + fila * (altoCaja + 3);
+    var w = anchoCaja - 3;
+    doc.setDrawColor(226, 226, 238);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, y, w, altoCaja, 2, 2, 'FD');
+    doc.setFillColor(79, 70, 229);
+    doc.roundedRect(x, y, w, 6.5, 2, 2, 'F');
+    doc.rect(x, y + 3.5, w, 3, 'F');
+    var nMes = 0;
+    for (var k = 0; k < lista.length; k++) {
+      var fm = parsearFecha(lista[k].inicio);
+      if (fm.getMonth() === m && fm.getFullYear() === anio) nMes++;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(pdfCortar(doc, PDF_MESES[m] + ' (' + nMes + ')', w - 6), x + 3, y + 4.7);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(120, 124, 150);
+    var colW = (w - 6) / 7;
+    var xD = x + 3;
+    for (var c = 0; c < 7; c++) doc.text(PDF_INI_DIA[c], xD + c * colW + colW / 2, y + 11.5, { align: 'center' });
+    var primero = new Date(anio, m, 1);
+    var leading = (primero.getDay() + 6) % 7;
+    var dias = new Date(anio, m + 1, 0).getDate();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    for (var d = 1; d <= dias; d++) {
+      var idx = leading + d - 1;
+      var cc = idx % 7, rr = Math.floor(idx / 7);
+      var dx = xD + cc * colW, dy = y + 13 + rr * 6;
+      var evs = mapa[pdfClave(new Date(anio, m, d))];
+      if (evs && evs.length) {
+        var rgb = pdfRgb(asignarColor(clasificarEvento(evs[0])).fondo);
+        doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+        doc.roundedRect(dx, dy, colW - 0.8, 5.2, 1, 1, 'F');
+        doc.setTextColor(255, 255, 255);
+      } else {
+        doc.setTextColor(74, 78, 105);
+      }
+      doc.text('' + d, dx + (colW - 0.8) / 2, dy + 3.8, { align: 'center' });
+    }
+  }
+  if (conLey) pdfLeyenda(doc, 275, lista);
+}
+
+function construirPDF() {
+  if (typeof jspdf === 'undefined' || !jspdf.jsPDF) {
+    throw new Error('No se cargó la librería jsPDF (verificá la conexión a internet).');
+  }
+  var doc = new jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  if (PDF_VISTA === 'dia') pdfVistaDia(doc);
+  else if (PDF_VISTA === 'semana') pdfVistaSemana(doc);
+  else if (PDF_VISTA === 'mes') pdfVistaMes(doc);
+  else pdfVistaAnio(doc);
+  pdfPie(doc);
+  return doc;
+}
+
+function abrirModalPDF() {
+  var v = 'dia';
+  if (!FECHA_BUSCAR_CAL) {
+    if (FILTRO_PERIODO === 'semana') v = 'semana';
+    else if (FILTRO_PERIODO === 'mes') v = 'mes';
+    else if (FILTRO_PERIODO === 'anio') v = 'anio';
+  }
+  PDF_VISTA = v;
+  document.querySelectorAll('.pdf-vista-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-vista') === v);
+  });
+  pdfReconstruir();
+  var m = new bootstrap.Modal(document.getElementById('modalExportPdf'));
+  m.show();
+}
+
+function pdfCambiarVista(v) {
+  PDF_VISTA = v;
+  document.querySelectorAll('.pdf-vista-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-vista') === v);
+  });
+  pdfReconstruir();
+}
+
+function pdfReconstruir() {
+  var info = document.getElementById('pdf-info');
+  var btn = document.getElementById('pdf-btn-descargar');
+  try {
+    PDF_DOC = construirPDF();
+    var blob = PDF_DOC.output('blob');
+    if (PDF_BLOB_URL) URL.revokeObjectURL(PDF_BLOB_URL);
+    PDF_BLOB_URL = URL.createObjectURL(blob);
+    document.getElementById('pdf-preview').src = PDF_BLOB_URL;
+    btn.disabled = false;
+    info.className = 'pdf-info mb-2';
+    var pags = PDF_DOC.internal.getNumberOfPages();
+    info.textContent = 'Vista: ' + pdfEtiquetaVista() + ' · ' + pags + ' página' + (pags === 1 ? '' : 's') +
+      ' · Respeta los filtros activos de la pantalla.';
+  } catch (e) {
+    PDF_DOC = null;
+    btn.disabled = true;
+    info.className = 'pdf-info mb-2 error';
+    info.textContent = 'No se pudo generar el PDF: ' + (e && e.message ? e.message : e);
+  }
+}
+
+function pdfDescargar() {
+  if (!PDF_DOC) return;
+  var h = new Date();
+  PDF_DOC.save('Calendario_' + PDF_VISTA + '_' + h.getFullYear() + pad2(h.getMonth() + 1) + pad2(h.getDate()) + '.pdf');
+}
