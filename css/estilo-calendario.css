@@ -699,6 +699,81 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Botón exportar PDF */
+.cal-btn-pdf {
+  background: #fff;
+  color: #dc2626;
+  border: 2px solid #dc2626;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.cal-btn-pdf:hover {
+  background: #dc2626;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220,38,38,0.35);
+}
+
+/* Modal exportar PDF */
+.pdf-opciones {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pdf-vista-btns {
+  display: inline-flex;
+  background: #eef0f6;
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+}
+.pdf-vista-btn {
+  border: none;
+  background: transparent;
+  color: #4b5563;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.pdf-vista-btn.active {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(79,70,229,0.35);
+}
+.pdf-leyenda-check {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.pdf-info {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #4f46e5;
+}
+.pdf-info.error {
+  color: #dc2626;
+}
+.pdf-preview {
+  width: 100%;
+  height: 58vh;
+  min-height: 380px;
+  border: 1px solid #d8dcec;
+  border-radius: 12px;
+  background: #f3f4fa;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .cal-header {
