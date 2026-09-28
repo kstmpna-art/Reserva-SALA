@@ -94,6 +94,7 @@
         <span id="fecha-contador" class="date-counter" style="display:none;">0</span>
         <input type="text" id="buscador" class="cal-search-input" placeholder="Buscar por título, descripción, ubicación..." oninput="buscarEventos(this.value)">
         <button type="button" class="cal-btn-import" onclick="abrirImportarTxt()">📥 Importar TXT</button>
+        <button type="button" class="cal-btn-pdf" onclick="abrirModalPDF()">⬇ PDF</button>
       </div>
     </div>
 
@@ -258,8 +259,41 @@
     </div>
   </div>
 
+  <!-- Modal Exportar PDF -->
+  <div class="modal fade" id="modalExportPdf" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content cal-modal">
+        <div class="modal-header cal-modal-create">
+          <h5 class="modal-title fw-bold">⬇ Exportar a PDF</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="pdf-opciones mb-3">
+            <span class="cal-filter-label">Vista:</span>
+            <div class="pdf-vista-btns">
+              <button type="button" class="pdf-vista-btn" data-vista="dia" onclick="pdfCambiarVista('dia')">Día</button>
+              <button type="button" class="pdf-vista-btn" data-vista="semana" onclick="pdfCambiarVista('semana')">Semana</button>
+              <button type="button" class="pdf-vista-btn" data-vista="mes" onclick="pdfCambiarVista('mes')">Mes</button>
+              <button type="button" class="pdf-vista-btn" data-vista="anio" onclick="pdfCambiarVista('anio')">Año</button>
+            </div>
+            <label class="pdf-leyenda-check">
+              <input type="checkbox" id="pdf-leyenda" checked onchange="pdfReconstruir()"> Incluir leyenda de colores
+            </label>
+          </div>
+          <div id="pdf-info" class="pdf-info mb-2"></div>
+          <iframe id="pdf-preview" class="pdf-preview" title="Vista previa del PDF"></iframe>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn cal-btn-outline" data-bs-dismiss="modal">Cerrar</button>
+          <button type="button" class="btn cal-btn-primary" id="pdf-btn-descargar" onclick="pdfDescargar()">⬇ Descargar PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index:9999;"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="js/calendario.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
