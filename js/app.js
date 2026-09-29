@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxPQJiztyrivRhRWyoNbO2A98l6X6zY36opJdLe62wxWEKiie68Lls0VWcupzvqUy-R/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyrPxMsAnir7gJH62ipyCEeE63kE9u9Ea7NCPiRNPhfn4TnFEmaQlRZT3NDBbkl_gC8/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -102,7 +102,8 @@ function categoriaFecha(f, h, m) {
 
 function cumpleFiltro(r, hoy, manana, semanaLimite, mesInicio) {
   if (!FILTRO_ACTUAL) return true;
-  var f = parsearFecha(r.fecha), e = r.estado.toLowerCase();
+  var f = parsearFecha(r.fecha), e = (r.estado || '').trim().toLowerCase();
+  if (!e) e = 'pendiente';  // sin estado = recién cargada, se trata como pendiente
   if (FILTRO_ACTUAL === 'pendientes') return e.indexOf('pendiente') !== -1;
   if (FILTRO_ACTUAL === 'hoy') return f.getTime() === hoy.getTime() && e.indexOf('aprobada') !== -1;
   if (FILTRO_ACTUAL === 'semana') return f >= hoy && f <= semanaLimite && e.indexOf('aprobada') !== -1;
@@ -235,7 +236,9 @@ function pintarLista() {
     var hoy = new Date(); hoy.setHours(0,0,0,0);
     var manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
     var catFecha = categoriaFecha(fechaReserva, hoy, manana);
-    var el = r.estado.toLowerCase(), er = el.indexOf('rechazada') !== -1;
+    var el = (r.estado || '').trim().toLowerCase();
+    if (!el) el = 'pendiente';  // sin estado = recién cargada, se trata como pendiente
+    var er = el.indexOf('rechazada') !== -1;
     var cb = el.indexOf('pendiente') !== -1 ? 'pendiente' : el.indexOf('aprobada') !== -1 ? 'aprobada' : el.indexOf('cancelada') !== -1 ? 'cancelada' : er ? 'rechazada' : '';
     var ef = catFecha === 'hoy' ? '<span class="badge bg-warning text-dark ms-2">HOY</span>' : catFecha === 'pasada' ? '<span class="fecha-tag pasada">Ya pasó</span>' : catFecha === 'manana' ? '<span class="fecha-tag manana">Mañana</span>' : '';
     var ep = el.indexOf('pendiente') !== -1;
@@ -263,7 +266,7 @@ function pintarLista() {
     div.innerHTML =
       '<div class="card-body d-flex justify-content-between align-items-start flex-wrap gap-2">' +
         '<div class="flex-grow-1">' +
-          '<div class="fw-bold mb-1">' + r.motivo + ef + ' <span class="badge-estado ' + cb + '"' + ob + '>' + r.estado + '</span></div>' +
+          '<div class="fw-bold mb-1">' + r.motivo + ef + ' <span class="badge-estado ' + cb + '"' + ob + '>' + (r.estado || 'Pendiente') + '</span></div>' +
           '<p class="mb-1 text-secondary small">' + r.fecha + ' - ' + r.horaInicio + ' a ' + r.horaFin + '</p>' +
           '<p class="mb-1 text-secondary small"><strong>Autoridad:</strong> ' + r.autoridad + ' | <strong>Responsable:</strong> ' + r.responsable + '</p>' +
           (r.asistentes ? '<p class="mb-1 text-secondary small"><strong>Asistentes:</strong> ' + r.asistentes + '</p>' : '') +
