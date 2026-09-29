@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyrPxMsAnir7gJH62ipyCEeE63kE9u9Ea7NCPiRNPhfn4TnFEmaQlRZT3NDBbkl_gC8/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby8s7CwxJlElbSbhgrvkPmtSejCvSavQ4QW3UoJZdpPO_NtFrgb6h1fxE-hfSrNtIbc/exec';
 
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
@@ -14,6 +14,7 @@ let FILTRO_ACTUAL = null;
 let FECHA_BUSCAR = null;
 let TEXTO_BUSCAR = '';
 let pagActual = 1;
+let GANTT_ABIERTO = true;
 
 const NOMBRES_FILTRO = {
   pendientes: 'Pendientes de aprobar',
@@ -282,6 +283,207 @@ function pintarLista() {
       '</div>';
     contenedor.appendChild(div);
   });
+  renderGanttPanel();
+}
+
+function irAReserva(fila) {
+  var visibles = getVisibles();
+  var idx = -1;
+  for (var i = 0; i < visibles.length; i++) {
+    if (visibles[i].fila === fila) { idx = i; break; }
+  }
+  if (idx === -1) {
+    mostrarToast('warning', 'La reserva no está en el listado actual (revisá los filtros)');
+    return;
+  }
+  var porPagina = parseInt(document.getElementById('pag-tamanio').value);
+  pagActual = Math.floor(idx / porPagina) + 1;
+  pintarLista();
+  var el = document.getElementById('reserva-' + fila);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('resaltada');
+    setTimeout(function() { el.classList.remove('resaltada'); }, 2500);
+  }
+}
+
+function escTxt(t) {
+  return (t == null ? '' : String(t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function horasDecPanel(texto) {
+  if (!texto) return null;
+  var t = String(texto).toLowerCase();
+  var m = t.match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  var h = parseInt(m[1], 10);
+  var mm = parseInt(m[2], 10);
+  var esAm = /a\.?\s?m/.test(t);
+  var esPm = /p\.?\s?m/.test(t);
+  if (esAm && h === 12) h = 0;
+  else if (esPm && h < 12) h += 12;
+  return h + mm / 60;
+}
+
+function horaCorta(texto) {
+  if (!texto) return '';
+  var t = String(texto).toLowerCase();
+  var m = t.match(/(\d{1,2}):(\d{2})/);
+  if (!m) return String(texto);
+  var s = m[1].padStart(2, '0') + ':' + m[2];
+  if (/a\.?\s?m/.test(t)) s += ' a.m.';
+  else if (/p\.?\s?m/.test(t)) s += ' p.m.';
+  return s;
+}
+
+function colorEstado(estado) {
+  var e = (estado || '').trim().toLowerCase();
+  if (!e) e = 'pendiente';
+  if (e.indexOf('pendiente') !== -1) return '#f5a623';
+  if (e.indexOf('aprobada') !== -1) return '#1d9e75';
+  if (e.indexOf('rechazada') !== -1) return '#d85a30';
+  if (e.indexOf('cancelada') !== -1) return '#94a3b8';
+  return '#6b7280';
+}
+
+function reservasDelDia(diaRef) {
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  var manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
+  var sl = new Date(hoy); sl.setDate(hoy.getDate() + 7);
+  var mi = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  var busq = TEXTO_BUSCAR.toLowerCase();
+  return TODAS_LAS_RESERVAS.filter(function(r) {
+    if (parsearFecha(r.fecha).getTime() !== diaRef.getTime()) return false;
+    if (!cumpleFiltro(r, hoy, manana, sl, mi)) return false;
+    if (!busq) return true;
+    return (r.motivo + ' ' + r.autoridad + ' ' + r.responsable + ' ' + (r.estado || '') + ' ' + (r.numeroSolicitud || '') + ' ' + (r.dependencias || '') + ' ' + (r.email || '')).toLowerCase().indexOf(busq) !== -1;
+  });
+}
+
+function renderGanttPanel() {
+  var cont = document.getElementById('gantt-panel');
+  if (!cont) return;
+  if (!GANTT_ABIERTO) { cont.style.display = 'none'; return; }
+
+  // Día a mostrar: fecha elegida > primer día con reservas del filtro activo > hoy
+  var diaRef = null;
+  if (FECHA_BUSCAR) {
+    diaRef = FECHA_BUSCAR;
+  } else if (FILTRO_ACTUAL) {
+    var vis = getVisibles();
+    for (var k = 0; k < vis.length; k++) {
+      var fv = parsearFecha(vis[k].fecha);
+      if (!diaRef || fv.getTime() < diaRef.getTime()) diaRef = fv;
+    }
+  }
+  if (!diaRef) diaRef = new Date();
+  diaRef = new Date(diaRef.getFullYear(), diaRef.getMonth(), diaRef.getDate());
+  var hoyD = new Date(); hoyD.setHours(0,0,0,0);
+  var esHoy = diaRef.getTime() === hoyD.getTime();
+  var titulo = '<div class="gantt-titulo">📅 Reservas del día — ' +
+    diaRef.getDate() + '/' + (diaRef.getMonth() + 1) + '/' + diaRef.getFullYear() +
+    (esHoy ? ' (hoy)' : '') + '</div>';
+
+  var reservasDia = reservasDelDia(diaRef);
+
+  var conHora = [];
+  var i;
+  for (i = 0; i < reservasDia.length; i++) {
+    var r = reservasDia[i];
+    var hi = horasDecPanel(r.horaInicio);
+    var hf = horasDecPanel(r.horaFin);
+    if (hi === null) continue;
+    if (hf === null || hf <= hi) hf = hi + 1;
+    conHora.push({ ref: r, _hi: hi, _hf: hf });
+  }
+
+  if (conHora.length === 0) {
+    cont.innerHTML = titulo + '<div class="gantt-vacio">No hay reservas con horario para este día.</div>';
+    cont.style.display = '';
+    return;
+  }
+
+  var minHora = 24, maxHora = 0;
+  for (i = 0; i < conHora.length; i++) {
+    if (conHora[i]._hi < minHora) minHora = conHora[i]._hi;
+    if (conHora[i]._hf > maxHora) maxHora = conHora[i]._hf;
+  }
+  if (minHora >= maxHora) { minHora = 8; maxHora = 22; }
+  var rangoIni = Math.max(0, Math.floor(minHora / 2) * 2);
+  var rangoFin = Math.min(24, Math.ceil(maxHora / 2) * 2);
+  if (rangoFin - rangoIni < 2) rangoFin = Math.min(24, rangoIni + 2);
+  var totalHoras = rangoFin - rangoIni;
+
+  conHora.sort(function(a, b) { return a._hi - b._hi; });
+  var lanes = [];
+  var conflictos = {};
+  var l;
+  for (i = 0; i < conHora.length; i++) {
+    var it = conHora[i];
+    var lane = -1;
+    for (l = 0; l < lanes.length; l++) {
+      if (lanes[l] <= it._hi + 0.01) { lane = l; break; }
+    }
+    if (lane === -1) { lane = lanes.length; lanes.push(0); }
+    lanes[lane] = it._hf;
+    it._lane = lane;
+  }
+  var j;
+  for (i = 0; i < conHora.length; i++) {
+    for (j = i + 1; j < conHora.length; j++) {
+      var a = conHora[i], b = conHora[j];
+      if (a._hi < b._hf - 0.01 && b._hi < a._hf - 0.01) {
+        conflictos[a.ref.fila] = true;
+        conflictos[b.ref.fila] = true;
+      }
+    }
+  }
+
+  var pasos = totalHoras > 12 ? 2 : 1;
+  var html = titulo;
+  var h, pct;
+  html += '<div class="gantt-eje"><div class="gantt-eje-espaciador"></div><div class="gantt-eje-marcas">';
+  for (h = rangoIni; h <= rangoFin; h += pasos) {
+    pct = ((h - rangoIni) / totalHoras) * 100;
+    html += '<span class="gantt-marca" style="left:' + pct + '%;">' + (h < 10 ? '0' : '') + h + ':00</span>';
+  }
+  html += '</div></div>';
+
+  var l2;
+  for (l2 = 0; l2 < lanes.length; l2++) {
+    html += '<div class="gantt-fila"><div class="gantt-fila-etiqueta"></div><div class="gantt-pista">';
+    for (h = rangoIni; h <= rangoFin; h += pasos) {
+      pct = ((h - rangoIni) / totalHoras) * 100;
+      html += '<div class="gantt-linea" style="left:' + pct + '%;"></div>';
+    }
+    for (i = 0; i < conHora.length; i++) {
+      var item = conHora[i];
+      if (item._lane !== l2) continue;
+      var rr = item.ref;
+      var color = colorEstado(rr.estado);
+      var izq = ((item._hi - rangoIni) / totalHoras) * 100;
+      var ancho = ((item._hf - item._hi) / totalHoras) * 100;
+      var horaTxt = horaCorta(rr.horaInicio) + ' a ' + horaCorta(rr.horaFin);
+      html += '<div class="gantt-barra' + (conflictos[rr.fila] ? ' conflicto' : '') + '" ' +
+        'style="left:' + izq + '%;width:' + ancho + '%;background:' + color + ';" ' +
+        'onclick="irAReserva(' + rr.fila + ')" ' +
+        'title="' + escTxt(rr.motivo) + ' — ' + horaTxt + '">' +
+        '<span class="gantt-barra-texto">' + escTxt(rr.motivo || 'Sin motivo') + '</span>' +
+        '<span class="gantt-barra-hora">' + horaTxt + '</span></div>';
+    }
+    html += '</div></div>';
+  }
+
+  html += '<div class="gantt-leyenda">' +
+    '<span><i style="background:#f5a623"></i> Pendiente</span>' +
+    '<span><i style="background:#1d9e75"></i> Aprobada</span>' +
+    '<span><i style="background:#d85a30"></i> Rechazada</span>' +
+    '<span><i style="background:#94a3b8"></i> Cancelada</span>' +
+    '<span><i class="conflicto"></i> Horario en conflicto</span>' +
+    '</div>';
+
+  cont.innerHTML = html;
+  cont.style.display = '';
 }
 
 function cambiarPagina(pag) {
