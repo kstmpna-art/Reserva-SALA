@@ -21,7 +21,7 @@
         </div>
         <div class="d-flex gap-2">
           <a href="index.html" class="btn cal-btn-outline">← Panel</a>
-          <a href="https://kstmpna-art.github.io/Comisiones-Viajes/" target="_blank" class="btn btn-info fw-bold shadow-sm">
+          <a href="https://kstmpna-art.github.io/Comisiones-Viajes/" target="_blank" id="btn-comisiones-cal" class="btn btn-info fw-bold shadow-sm">
           ✈ Comisiones </a>
           <button id="btn-actualizar-cal" class="btn cal-btn-outline" onclick="recargar()">↻ Actualizar</button>
           <button class="btn cal-btn-primary" onclick="abrirModalCrear()">+ Nuevo Evento</button>
@@ -295,6 +295,16 @@
 
   <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index:9999;"></div>
 
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('reservaSalaRol') !== 'admin') {
+          var b = document.getElementById('btn-comisiones-cal');
+          if (b) b.style.display = 'none';
+        }
+      } catch (e) {}
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="js/calendario.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
