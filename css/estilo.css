@@ -616,6 +616,7 @@ body {
   background: #f8fafc;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  -webkit-text-security: disc;
 }
 .login-input:focus {
   border-color: #378ade;
