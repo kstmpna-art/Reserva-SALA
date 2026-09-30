@@ -1241,7 +1241,7 @@ function pdfCabecera(doc, titulo, subtitulo) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
   doc.setTextColor(30, 27, 75);
-  doc.text(pdfCortar(doc, 'CALENDARIO GENERAL - SALA DE SITUACIÓN DTRA', 190), 10, 13.5);
+  doc.text(pdfCortar(doc, 'CALENDARIO GENERAL - Centro de Fusión DTRA', 190), 10, 13.5);
   doc.setFontSize(10);
   doc.setTextColor(79, 70, 229);
   doc.text(pdfCortar(doc, titulo, 190), 10, 20.5);
@@ -1262,7 +1262,7 @@ function pdfPie(doc) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(130, 134, 160);
-    doc.text('Generado: ' + fecha + ' - Sala de Situación DTRA', 10, 291.5);
+    doc.text('Generado: ' + fecha + ' - Centro de Fusión DTRA', 10, 291.5);
     doc.text('Página ' + i + ' de ' + total, 200, 291.5, { align: 'right' });
   }
 }
