@@ -1,5 +1,15 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycby8s7CwxJlElbSbhgrvkPmtSejCvSavQ4QW3UoJZdpPO_NtFrgb6h1fxE-hfSrNtIbc/exec';
 
+// ============================================================
+// ACCESOS POR ROL (cambiá los códigos acá cuando lo necesites)
+// admin  = ve todo y puede editar
+// visita = solo ve las reservas y agrega nuevas
+// ============================================================
+const ACCESOS = {
+  admin: 'Dtra-2373',
+  visita: 'Finanza2026'
+};
+
 const MOTIVOS_RECHAZO = [
   "Horario ocupado",
   "Solicitar nueva fecha",
@@ -22,6 +32,78 @@ const NOMBRES_FILTRO = {
   semana: 'Próximos 7 días',
   canceladas: 'Canceladas / Rechazadas (mes)'
 };
+
+// ============================================================
+// ROLES / SESIÓN
+// ============================================================
+function obtenerRol() {
+  try {
+    var r = localStorage.getItem('reservaSalaRol');
+    return (r === 'admin' || r === 'visita') ? r : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function esAdmin() {
+  return obtenerRol() === 'admin';
+}
+
+function guardarRol(rol) {
+  try { localStorage.setItem('reservaSalaRol', rol); } catch (e) {}
+}
+
+function cerrarSesion() {
+  try { localStorage.removeItem('reservaSalaRol'); } catch (e) {}
+  aplicarPermisos();
+}
+
+function intentarAcceso() {
+  var input = document.getElementById('login-pin');
+  var error = document.getElementById('login-error');
+  var cod = (input.value || '').trim();
+  var rol = null;
+  if (cod && cod === ACCESOS.admin) rol = 'admin';
+  else if (cod && cod === ACCESOS.visita) rol = 'visita';
+
+  if (!rol) {
+    error.style.display = '';
+    input.value = '';
+    input.focus();
+    return;
+  }
+  error.style.display = 'none';
+  input.value = '';
+  guardarRol(rol);
+  aplicarPermisos();
+  mostrarToast('success', rol === 'admin' ? 'Sesión de Administrador iniciada' : 'Sesión de Consulta iniciada');
+}
+
+function aplicarPermisos() {
+  var rol = obtenerRol();
+  var admin = rol === 'admin';
+
+  var overlay = document.getElementById('login-overlay');
+  if (overlay) overlay.style.display = rol ? 'none' : 'flex';
+
+  var btnCalendario = document.getElementById('btn-calendario');
+  if (btnCalendario) btnCalendario.style.display = admin ? '' : 'none';
+
+  var btnComisiones = document.getElementById('btn-comisiones');
+  if (btnComisiones) btnComisiones.style.display = admin ? '' : 'none';
+
+  var chip = document.getElementById('sesion-rol');
+  if (chip) {
+    chip.style.display = rol ? '' : 'none';
+    chip.textContent = admin ? 'Administrador' : 'Consulta';
+    chip.className = 'badge sesion-rol ' + (admin ? 'bg-dark' : 'bg-secondary');
+  }
+
+  var btnSalir = document.getElementById('btn-salir');
+  if (btnSalir) btnSalir.style.display = rol ? '' : 'none';
+
+  if (TODAS_LAS_RESERVAS.length) pintarLista();
+}
 
 function cargarDatosCache() {
   try {
@@ -246,18 +328,20 @@ function pintarLista() {
     var ec = el.indexOf('cancelada') !== -1;
     var er = el.indexOf('rechazada') !== -1;
     var b = '';
-    if (ep) {
-      b = '<button class="btn btn-sm btn-success" onclick="aprobar(' + r.fila + ')">Aprobar</button>' +
-          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
-          '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
-    } else if (el.indexOf('aprobada') !== -1) {
-      b = '<button class="btn btn-sm btn-outline-danger" onclick="cancelar(' + r.fila + ')">Cancelar</button>' +
-          '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
-          '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
-    } else if (ec || er) {
-      b = '<button class="btn btn-sm btn-outline-success" onclick="reactivar(' + r.fila + ')">Reactivar</button>';
+    if (esAdmin()) {
+      if (ep) {
+        b = '<button class="btn btn-sm btn-success" onclick="aprobar(' + r.fila + ')">Aprobar</button>' +
+            '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
+            '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
+      } else if (el.indexOf('aprobada') !== -1) {
+        b = '<button class="btn btn-sm btn-outline-danger" onclick="cancelar(' + r.fila + ')">Cancelar</button>' +
+            '<button class="btn btn-sm btn-warning" onclick="mostrarRechazo(' + r.fila + ')">Rechazar</button>' +
+            '<button class="btn btn-sm btn-info text-white" onclick="abrirEdicion(' + r.fila + ')">Editar</button>';
+      } else if (ec || er) {
+        b = '<button class="btn btn-sm btn-outline-success" onclick="reactivar(' + r.fila + ')">Reactivar</button>';
+      }
+      b += '<button class="btn btn-sm btn-outline-secondary" onclick="eliminar(' + r.fila + ')">Eliminar</button>';
     }
-    b += '<button class="btn btn-sm btn-outline-secondary" onclick="eliminar(' + r.fila + ')">Eliminar</button>';
     var ob = er ? ' onclick="toggleMotivo(' + r.fila + ')"' : '';
     var mt = r.observaciones ? r.observaciones : 'Sin motivo registrado';
     var mh = er ? '<div class="motivo-rechazo" id="motivo-rechazo-' + r.fila + '">Motivo del rechazo: ' + mt + '</div>' : '';
@@ -508,7 +592,14 @@ function toggleMotivo(fila) {
   document.getElementById('motivo-rechazo-' + fila).classList.toggle('visible');
 }
 
+function exigirAdmin(accion) {
+  if (esAdmin()) return true;
+  mostrarToast('warning', 'Tu rol de Consulta no permite ' + (accion || 'modificar reservas'));
+  return false;
+}
+
 async function aprobar(fila) {
+  if (!exigirAdmin('aprobar')) return;
   if (!confirm('¿Aprobar esta reserva y crearla en el Calendar?')) return;
   var res = await enviarAccion('aprobarReserva', { fila: fila });
   var tipo = res.mensaje.indexOf('rechazada') !== -1 ? 'warning' : (res.exito ? 'success' : 'danger');
@@ -517,6 +608,7 @@ async function aprobar(fila) {
 }
 
 function mostrarRechazo(fila) {
+  if (!exigirAdmin('rechazar')) return;
   var panel = document.getElementById('rechazo-' + fila);
   if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
   var o = '<select class="form-select form-select-sm d-inline-block" style="width:auto;" id="motivo-select-' + fila + '">';
@@ -527,6 +619,7 @@ function mostrarRechazo(fila) {
 }
 
 async function confirmarRechazo(fila) {
+  if (!exigirAdmin('rechazar')) return;
   var motivo = document.getElementById('motivo-select-' + fila).value;
   var res = await enviarAccion('rechazarReserva', { fila: fila, motivo: motivo });
   mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
@@ -534,6 +627,7 @@ async function confirmarRechazo(fila) {
 }
 
 async function cancelar(fila) {
+  if (!exigirAdmin('cancelar')) return;
   if (!confirm('¿Cancelar esta reserva? Se borrará el evento del Calendar.')) return;
   var res = await enviarAccion('cancelarReserva', { fila: fila });
   mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
@@ -541,6 +635,7 @@ async function cancelar(fila) {
 }
 
 async function eliminar(fila) {
+  if (!exigirAdmin('eliminar')) return;
   if (!confirm('¿ELIMINAR esta fila por completo? No se puede deshacer.')) return;
   var res = await enviarAccion('eliminarDefinitivo', { fila: fila });
   mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
@@ -548,6 +643,7 @@ async function eliminar(fila) {
 }
 
 async function reactivar(fila) {
+  if (!exigirAdmin('reactivar')) return;
   if (!confirm('¿Reactivar esta reserva? Volverá a estado Pendiente.')) return;
   var res = await enviarAccion('reactivarReserva', { fila: fila });
   mostrarToast(res.exito ? 'success' : 'danger', res.mensaje);
@@ -568,6 +664,7 @@ function mostrarToast(tipo, mensaje) {
 }
 
 function abrirEdicion(fila) {
+  if (!exigirAdmin('editar')) return;
   var reserva = TODAS_LAS_RESERVAS.find(function(r) { return r.fila === fila; });
   if (!reserva) return;
 
@@ -614,6 +711,7 @@ function extraerHoras(texto) {
 }
 
 async function guardarEdicion() {
+  if (!exigirAdmin('editar')) return;
   var fila = parseInt(document.getElementById('edit-fila').value);
   var motivo = document.getElementById('edit-motivo').value.trim();
   var fecha = document.getElementById('edit-fecha').value;
@@ -655,5 +753,15 @@ async function guardarEdicion() {
   cargarPanel();
 }
 
+aplicarPermisos();
 cargarPanel();
 setInterval(cargarPanel, 60000);
+
+document.addEventListener('DOMContentLoaded', function() {
+  var input = document.getElementById('login-pin');
+  if (!input) return;
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') intentarAcceso();
+  });
+  input.focus();
+});
