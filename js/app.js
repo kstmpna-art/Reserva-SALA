@@ -754,26 +754,6 @@ async function guardarEdicion() {
 }
 
 aplicarPermisos();
-// Algunos navegadores/extensiones inyectan valores ajenos en el buscador (ej: DNI).
-// Se limpia cualquier valor que no haya sido escrito con teclas reales por el usuario.
-var usuarioEscribioBuscador = false;
-document.addEventListener('keydown', function(ev) {
-  if (ev.isTrusted && document.activeElement && document.activeElement.id === 'buscador') {
-    usuarioEscribioBuscador = true;
-  }
-}, true);
-function limpiarBuscadorAjeno() {
-  if (usuarioEscribioBuscador) return;
-  var b = document.getElementById('buscador');
-  if (b && b.value !== '') b.value = '';
-}
-window.addEventListener('load', function() {
-  setTimeout(limpiarBuscadorAjeno, 300);
-  setTimeout(limpiarBuscadorAjeno, 1200);
-});
-document.getElementById('buscador').addEventListener('focus', function() {
-  setTimeout(limpiarBuscadorAjeno, 150);
-});
 
 cargarPanel();
 setInterval(cargarPanel, 60000);
