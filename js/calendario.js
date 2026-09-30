@@ -1,4 +1,4 @@
-var API_URL = 'https://script.google.com/macros/s/AKfycby8s7CwxJlElbSbhgrvkPmtSejCvSavQ4QW3UoJZdpPO_NtFrgb6h1fxE-hfSrNtIbc/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbzuGKZdotNwSDlBoXVG6eiE-8gyCuRSF9f6TMLyZzMwgV0rPl5H7g3_tDKxPnyATxcM/exec';
 
 var todosLosEventos = [];
 var eventosFiltrados = [];
