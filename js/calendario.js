@@ -1,4 +1,4 @@
-var API_URL = 'https://script.google.com/macros/s/AKfycby5JNPDkp0qyaXB7MAHzc3PqhEOIYVJh8tLc85GCYGaVPuXPQrqLTJFte8YtUSFFYEt/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbw-9Z3vI83sdCYg7ayhlEDUs_Nh_SUIJFzXnfItytI8LYGau62xfDga6G0XyIC0lp6f/exec';
 
 var todosLosEventos = [];
 var eventosFiltrados = [];
@@ -309,6 +309,36 @@ function renderNotaPreview() {
   cont.style.display = '';
 }
 
+// POST con reintento (Google a veces devuelve 404 transitorio en el redirect
+// a script.googleusercontent.com/macros/echo). Devuelve la data o null.
+async function postJsonAccion(action, datos) {
+  var cuerpo = { action: action, datos: datos };
+  for (var intento = 1; intento <= 2; intento++) {
+    try {
+      var res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(cuerpo)
+      });
+      if (!res.ok) {
+        var detalle = '';
+        try { detalle = (await res.text()).substring(0, 200); } catch (e2) {}
+        console.error('[post] HTTP ' + res.status + ' → ' + res.url, detalle);
+        if (intento === 1) { await new Promise(function(r) { setTimeout(r, 1500); }); continue; }
+        mostrarToast('danger', 'El servidor respondió HTTP ' + res.status + ' (detalle en consola F12)');
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.error('[post] error de red (intento ' + intento + '):', err);
+      if (intento === 1) { await new Promise(function(r) { setTimeout(r, 1500); }); continue; }
+      mostrarToast('danger', 'Sin respuesta del servidor (detalle en consola F12)');
+      return null;
+    }
+  }
+  return null;
+}
+
 async function crearEventoDesdeNota(i) {
   var n = notasDetectadas[i];
   if (!n) return;
@@ -344,26 +374,23 @@ async function crearEventoDesdeNota(i) {
   if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
 
   try {
-    var res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({
-        action: 'crearEventoCalendario',
-        datos: {
-          titulo: titulo,
-          inicio: inicio.toISOString(),
-          fin: fin.toISOString(),
-          descripcion: desc,
-          ubicacion: lugar
-        }
-      })
+    var data = await postJsonAccion('crearEventoCalendario', {
+      titulo: titulo,
+      inicio: inicio.toISOString(),
+      fin: fin.toISOString(),
+      descripcion: desc,
+      ubicacion: lugar
     });
-    var data = await res.json();
-    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
-    if (data.exito) {
-      notasDetectadas.splice(i, 1);
-      renderNotaPreview();
-      recargar();
+    if (data) {
+      mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
+      if (data.exito) {
+        notasDetectadas.splice(i, 1);
+        renderNotaPreview();
+        recargar();
+      } else if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✅ Crear evento';
+      }
     } else if (btn) {
       btn.disabled = false;
       btn.textContent = '✅ Crear evento';
@@ -531,11 +558,19 @@ function renderizarPreviewImport() {
     if (fila.estado === 'nuevo') nNuevo++;
     else if (fila.estado === 'existe') nExiste++;
     else nRep++;
+    var fechaVal = fechaDeIso(ev.inicio);
+    var hIni = ev.todoElDia ? '' : horaDeIso(ev.inicio);
+    var hFin = ev.todoElDia ? '' : horaDeIso(ev.fin);
     html += '<tr>';
     html += '<td><input type="checkbox" class="import-check" data-i="' + i + '"' + (marcado ? ' checked' : '') + ' onchange="actualizarBtnImport()"></td>';
-    html += '<td style="white-space:nowrap;">' + escAgenda(ev._fechaTxt) + '</td>';
-    html += '<td style="white-space:nowrap;">' + escAgenda(ev._horaTxt) + '</td>';
-    html += '<td>' + escAgenda(ev.titulo) + '</td>';
+    html += '<td><input type="date" class="cal-input import-fecha" value="' + escAgenda(fechaVal) + '" onchange="editarFilaFecha(' + i + ', this.value)"></td>';
+    html += '<td class="import-hora-celda">' +
+      '<input type="time" class="cal-input import-hora-ini" id="import-hora-ini-' + i + '" value="' + escAgenda(hIni) + '" onchange="editarFilaHora(' + i + ')">' +
+      '<span class="import-hora-sep">a</span>' +
+      '<input type="time" class="cal-input import-hora-fin" id="import-hora-fin-' + i + '" value="' + escAgenda(hFin) + '" onchange="editarFilaHora(' + i + ')">' +
+      (ev._porConfirmar ? ' <span class="hora-conf" title="Horario a confirmar">*</span>' : '') +
+      '</td>';
+    html += '<td><input type="text" class="cal-input import-titulo" value="' + escAgenda(ev.titulo) + '" oninput="editarFilaTitulo(' + i + ', this.value)"></td>';
     html += '<td><span class="estado-chip estado-' + fila.estado + '">' + etiquetaEstado(fila.estado) + '</span></td>';
     html += '</tr>';
   }
@@ -547,7 +582,7 @@ function renderizarPreviewImport() {
   if (nRep) partes.push('<span style="color:#6b7280;">' + nRep + ' repetido(s)</span>');
   resumen.innerHTML = partes.join(' · ') +
     (importAvisos.length ? ' · <span style="color:#b45309;">' + importAvisos.length + ' aviso(s)</span>' : '') +
-    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Las listas (xlsx/pdf/doc) se importan como serie anual: se repiten cada año. Los tildados en "Ya existe"/"Repetido" crean el evento igualmente.</span>';
+    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Podés editar fecha, horario y título antes de importar. Las listas (xlsx/pdf/doc) se importan como serie anual: se repiten cada año. Los tildados en "Ya existe"/"Repetido" crean el evento igualmente.</span>';
 
   var avisosDiv = document.getElementById('import-avisos');
   if (importAvisos.length) {
@@ -562,6 +597,106 @@ function renderizarPreviewImport() {
   cont.style.display = '';
   document.getElementById('import-check-all').checked = (nNuevo === importFilas.length);
   actualizarBtnImport();
+}
+
+function horaDeIso(s) {
+  s = String(s || '');
+  if (s.indexOf('T') === -1) return '';
+  var d = new Date(s);
+  if (isNaN(d.getTime())) {
+    var m = s.match(/T(\d{2}):(\d{2})/);
+    return m ? m[1] + ':' + m[2] : '';
+  }
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+// Fecha local (yyyy-mm-dd) de un ISO. Los ISO con Z (txt) pueden caer en el
+// día UTC siguiente si la hora local es ≥21:00, por eso se pasa por Date.
+function fechaDeIso(s) {
+  s = String(s || '');
+  if (s.indexOf('T') === -1) return s.substring(0, 10);
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return s.substring(0, 10);
+  return fmtFechaISO(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+function localIso(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+    'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+
+function editarFilaTitulo(i, v) {
+  if (importFilas[i]) importFilas[i].ev.titulo = v;
+}
+
+function editarFilaFecha(i, valor) {
+  var fila = importFilas[i];
+  if (!fila || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return;
+  var ev = fila.ev;
+  var iniOld = fechaDeIso(ev.inicio);
+  var finOld = fechaDeIso(ev.fin);
+  var dias = 0;
+  var a = new Date(iniOld + 'T00:00:00');
+  var b = new Date(finOld + 'T00:00:00');
+  if (!isNaN(a.getTime()) && !isNaN(b.getTime())) dias = Math.round((b.getTime() - a.getTime()) / 86400000);
+  var nFin = new Date(valor + 'T00:00:00');
+  nFin.setDate(nFin.getDate() + dias);
+  var fFin = fmtFechaISO(nFin.getFullYear(), nFin.getMonth() + 1, nFin.getDate());
+  if (ev.todoElDia) {
+    ev.inicio = valor;
+    ev.fin = fFin;
+  } else {
+    var tIni = horaDeIso(ev.inicio) || '00:00';
+    var tFin = horaDeIso(ev.fin) || tIni;
+    if (fila.serie) {
+      ev.inicio = valor + 'T' + tIni + ':00';
+      ev.fin = fFin + 'T' + tFin + ':00';
+    } else {
+      ev.inicio = new Date(valor + 'T' + tIni).toISOString();
+      ev.fin = new Date(fFin + 'T' + tFin).toISOString();
+    }
+  }
+}
+
+function editarFilaHora(i) {
+  var fila = importFilas[i];
+  if (!fila) return;
+  var ev = fila.ev;
+  var inpIni = document.getElementById('import-hora-ini-' + i);
+  var inpFin = document.getElementById('import-hora-fin-' + i);
+  var hIni = inpIni ? inpIni.value : '';
+  var hFin = inpFin ? inpFin.value : '';
+  var fIni = fechaDeIso(ev.inicio);
+  var fFin = fechaDeIso(ev.fin);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fIni)) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fFin)) fFin = fIni;
+  if (!hIni) {
+    ev.todoElDia = true;
+    ev.inicio = fIni;
+    ev.fin = fFin;
+    if (inpFin) inpFin.value = '';
+    return;
+  }
+  ev.todoElDia = false;
+  var iniLocal = new Date(fIni + 'T' + hIni);
+  if (isNaN(iniLocal.getTime())) return;
+  var finLocal;
+  if (hFin) {
+    finLocal = new Date(fFin + 'T' + hFin);
+  } else {
+    var dias = Math.round((new Date(fFin + 'T00:00:00').getTime() - new Date(fIni + 'T00:00:00').getTime()) / 86400000);
+    finLocal = dias > 0 ? new Date(fFin + 'T23:59') : new Date(iniLocal.getTime() + 3600000);
+  }
+  if (isNaN(finLocal.getTime())) finLocal = new Date(iniLocal.getTime() + 3600000);
+  if (finLocal.getTime() === iniLocal.getTime()) finLocal = new Date(iniLocal.getTime() + 3600000);
+  else if (finLocal < iniLocal) finLocal = new Date(finLocal.getTime() + 86400000);
+  if (fila.serie) {
+    ev.inicio = localIso(iniLocal);
+    ev.fin = localIso(finLocal);
+  } else {
+    ev.inicio = iniLocal.toISOString();
+    ev.fin = finLocal.toISOString();
+  }
 }
 
 function toggleImportTodos(marcar) {
@@ -582,6 +717,7 @@ async function importarEventosTxt() {
     var fila = importFilas[parseInt(c.getAttribute('data-i'), 10)];
     if (!fila) return;
     var ev = fila.ev;
+    if (!String(ev.titulo || '').trim()) return;
     var item = { titulo: ev.titulo, inicio: ev.inicio, fin: ev.fin, todoElDia: !!ev.todoElDia };
     if (fila.serie) {
       item.serieAnual = true;
@@ -597,17 +733,14 @@ async function importarEventosTxt() {
   btn.textContent = 'Importando...';
 
   try {
-    var res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'importarEventosCalendario', datos: { eventos: seleccionados } })
-    });
-    var data = await res.json();
-    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
-    if (data.exito) {
-      var modal = bootstrap.Modal.getInstance(document.getElementById('modalImportarTxt'));
-      if (modal) modal.hide();
-      recargar();
+    var data = await postJsonAccion('importarEventosCalendario', { eventos: seleccionados });
+    if (data) {
+      mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
+      if (data.exito) {
+        var modal = bootstrap.Modal.getInstance(document.getElementById('modalImportarTxt'));
+        if (modal) modal.hide();
+        recargar();
+      }
     }
   } catch (err) {
     mostrarToast('danger', 'Error de conexión');
