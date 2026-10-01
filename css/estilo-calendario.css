@@ -614,6 +614,35 @@ body {
   color: #4b5563;
 }
 
+/* Fila editable en la vista previa de importación */
+.import-fecha {
+  width: 150px;
+  font-size: 13px;
+}
+.import-hora-celda {
+  white-space: nowrap;
+}
+.import-hora-ini,
+.import-hora-fin {
+  width: 106px;
+  font-size: 13px;
+  padding: 4px 5px;
+}
+.import-hora-sep {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 0 4px;
+}
+.import-titulo {
+  width: 100%;
+  min-width: 170px;
+  font-size: 13px;
+}
+.hora-conf {
+  color: #b45309;
+  font-weight: 700;
+}
+
 /* Vista previa de nota oficial (editable) */
 .nota-form {
   background: #fff;
