@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbzuGKZdotNwSDlBoXVG6eiE-8gyCuRSF9f6TMLyZzMwgV0rPl5H7g3_tDKxPnyATxcM/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbw-9Z3vI83sdCYg7ayhlEDUs_Nh_SUIJFzXnfItytI8LYGau62xfDga6G0XyIC0lp6f/exec';
 
 // ============================================================
 // ACCESOS POR ROL (cambiá los códigos acá cuando lo necesites)
