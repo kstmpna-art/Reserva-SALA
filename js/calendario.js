@@ -1,4 +1,4 @@
-var API_URL = 'https://script.google.com/macros/s/AKfycbzuGKZdotNwSDlBoXVG6eiE-8gyCuRSF9f6TMLyZzMwgV0rPl5H7g3_tDKxPnyATxcM/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycby5JNPDkp0qyaXB7MAHzc3PqhEOIYVJh8tLc85GCYGaVPuXPQrqLTJFte8YtUSFFYEt/exec';
 
 var todosLosEventos = [];
 var eventosFiltrados = [];
@@ -95,10 +95,12 @@ function recargar() {
 }
 
 // ============================================================
-// IMPORTACIÓN DE AGENDA DESDE TXT
+// IMPORTACIÓN DE ARCHIVOS (TXT + XLSX/DOC/PDF)
 // ============================================================
 var MESES_AGENDA = { ENE:1, FEB:2, MAR:3, ABR:4, MAY:5, JUN:6, JUL:7, AGO:8, SEP:9, OCT:10, NOV:11, DIC:12 };
-var agendaParseada = [];
+var importFilas = [];
+var importAvisos = [];
+var notasDetectadas = [];
 
 function abrirImportarTxt() {
   document.getElementById('import-txt-archivo').value = '';
@@ -106,21 +108,270 @@ function abrirImportarTxt() {
   document.getElementById('import-avisos').style.display = 'none';
   document.getElementById('import-btn-ejecutar').disabled = true;
   document.getElementById('import-btn-ejecutar').textContent = 'Importar seleccionados (0)';
-  agendaParseada = [];
+  var dz = document.getElementById('import-dropzone');
+  if (dz) dz.classList.remove('dragover');
+  importFilas = [];
+  importAvisos = [];
+  notasDetectadas = [];
+  var np = document.getElementById('nota-preview');
+  if (np) { np.innerHTML = ''; np.style.display = 'none'; }
   var modal = new bootstrap.Modal(document.getElementById('modalImportarTxt'));
   modal.show();
 }
 
-function leerArchivoAgenda(input) {
-  var file = input.files && input.files[0];
-  if (!file) return;
-  var lector = new FileReader();
-  lector.onload = function(e) {
-    var res = parsearAgendaTxt(e.target.result);
-    agendaParseada = res.eventos;
-    renderizarPreviewAgenda(res);
+function importDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var dz = document.getElementById('import-dropzone');
+  if (dz) dz.classList.add('dragover');
+}
+
+function importDragLeave(e) {
+  e.preventDefault();
+  var dz = document.getElementById('import-dropzone');
+  if (dz) dz.classList.remove('dragover');
+}
+
+function importDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var dz = document.getElementById('import-dropzone');
+  if (dz) dz.classList.remove('dragover');
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    procesarArchivos(e.dataTransfer.files);
+  }
+}
+
+function leerArchivosAgenda(input) {
+  if (input.files && input.files.length) procesarArchivos(input.files);
+}
+
+async function procesarArchivos(files) {
+  importFilas = [];
+  importAvisos = [];
+  var registros = [];
+  var anioBase = new Date().getFullYear();
+
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    var ext = (file.name || '').split('.').pop().toLowerCase();
+    try {
+      if (ext === 'txt') {
+        var res = parsearAgendaTxt(await file.text());
+        for (var j = 0; j < res.eventos.length; j++) {
+          importFilas.push({ ev: res.eventos[j], estado: 'nuevo', serie: false });
+        }
+        importAvisos = importAvisos.concat(res.avisos);
+      } else if (ext === 'xlsx' || ext === 'pdf' || ext === 'doc' || ext === 'docx') {
+        if (typeof Imp === 'undefined') {
+          importAvisos.push('No se cargó js/importar.js (solo se puede importar .txt)');
+          continue;
+        }
+        var r;
+        if (ext === 'xlsx') {
+          r = await Imp.importarXLSX(await file.arrayBuffer());
+        } else if (ext === 'pdf') {
+          var txtPdf = await Imp.extraerTextoPdf(await file.arrayBuffer());
+          if (!txtPdf || !txtPdf.replace(/\s+/g, '')) {
+            importAvisos.push('No se pudo extraer texto de ' + file.name + ' (¿el navegador no soporta lectura de PDF?)');
+          } else if (Imp.esNotaOficial(txtPdf)) {
+            notasDetectadas.push(Imp.parsearNota(txtPdf, file.name));
+            console.log('[import] ' + file.name + ': detectada como nota oficial (' + txtPdf.length + ' chars)');
+          } else {
+            console.log('[import] ' + file.name + ': ' + txtPdf.length + ' chars, no coincide con nota oficial; se prueba como lista');
+            r = Imp.parsearTextoPersonas(txtPdf, file.name);
+          }
+        } else if (ext === 'docx') {
+          r = Imp.parsearTextoPersonas(await Imp.extraerTextoDocx(await file.arrayBuffer()), file.name);
+        } else {
+          r = Imp.parsearTextoPersonas(Imp.extraerTextoDoc(await file.arrayBuffer()), file.name);
+        }
+        if (r) {
+          registros = registros.concat(r.registros);
+          importAvisos = importAvisos.concat(r.avisos);
+        }
+      } else {
+        importAvisos.push('Formato no soportado: ' + file.name);
+      }
+    } catch (err) {
+      importAvisos.push('Error al leer ' + file.name + ': ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  if (typeof Imp !== 'undefined' && registros.length) {
+    for (var k = 0; k < registros.length; k++) {
+      if (Imp.duplicadoEnLote(registros, k) !== -1) registros[k]._omite = true;
+    }
+    for (var k = 0; k < registros.length; k++) {
+      var reg = registros[k];
+      var estado = reg._omite ? 'repetido'
+        : (Imp.duplicadoEnCalendario(reg, todosLosEventos) ? 'existe' : 'nuevo');
+      importFilas.push({ ev: eventoDesdeRegistro(reg, anioBase), estado: estado, serie: true });
+    }
+  }
+
+  renderNotaPreview();
+
+  if (!importFilas.length && !notasDetectadas.length) {
+    mostrarAvisosImport('No se reconoció ningún evento en los archivos');
+    return;
+  }
+  if (importFilas.length) {
+    renderizarPreviewImport();
+  } else {
+    document.getElementById('import-preview').style.display = 'none';
+    document.getElementById('import-avisos').style.display = 'none';
+  }
+}
+
+function mostrarAvisosImport(mensaje) {
+  var cont = document.getElementById('import-preview');
+  var cuerpo = document.getElementById('import-preview-body');
+  var resumen = document.getElementById('import-resumen');
+  var avisosDiv = document.getElementById('import-avisos');
+  resumen.innerHTML = '<span style="color:#b45309;font-weight:600;">' + escAgenda(mensaje) + '</span>';
+  cuerpo.innerHTML = '';
+  var lista = '<ul>';
+  if (importAvisos.length) {
+    for (var j = 0; j < importAvisos.length; j++) lista += '<li>' + escAgenda(importAvisos[j]) + '</li>';
+  } else {
+    lista += '<li>Sin avisos: el archivo no produjo texto reconocible. (Abrí la consola con F12 para ver detalles)</li>';
+  }
+  avisosDiv.innerHTML = '<strong>Avisos:</strong>' + lista + '</ul>';
+  avisosDiv.style.display = '';
+  cont.style.display = '';
+  var btn = document.getElementById('import-btn-ejecutar');
+  btn.textContent = 'Importar seleccionados (0)';
+  btn.disabled = true;
+  mostrarToast('warning', mensaje + (importAvisos.length ? ' — ' + importAvisos.length + ' aviso(s), mirá abajo' : ''));
+}
+
+function eventoDesdeRegistro(reg, anioBase) {
+  var titulo;
+  if (reg.tipo === 'cumpleanos') titulo = 'Cumpleaños: ' + reg.nombre;
+  else if (reg.tipo === 'bodas') titulo = 'Aniversario de bodas: ' + reg.nombre;
+  else titulo = 'Aniversario: ' + reg.nombre;
+  var fecha = fmtFechaISO(anioBase, reg.mm, reg.dd);
+  return {
+    titulo: titulo,
+    todoElDia: true,
+    inicio: fecha,
+    fin: fecha,
+    serieAnual: true,
+    _fechaTxt: reg.dd + '/' + pad2(reg.mm) + ' (cada año)',
+    _horaTxt: 'Todo el día',
+    _porConfirmar: false
   };
-  lector.readAsText(file, 'utf-8');
+}
+
+function notaDuplicada(n) {
+  if (!n.fecha || typeof Imp === 'undefined') return false;
+  var clave = n.fecha.substring(5, 10);
+  for (var i = 0; i < todosLosEventos.length; i++) {
+    var ev = todosLosEventos[i];
+    if (String(ev.inicio || '').substring(5, 10) !== clave) continue;
+    if (Imp.nombresCoinciden(n.titulo, ev.titulo)) return true;
+  }
+  return false;
+}
+
+function renderNotaPreview() {
+  var cont = document.getElementById('nota-preview');
+  if (!cont) return;
+  if (!notasDetectadas.length) {
+    cont.innerHTML = '';
+    cont.style.display = 'none';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < notasDetectadas.length; i++) {
+    var n = notasDetectadas[i];
+    html += '<div class="nota-form">';
+    html += '<div class="nota-form-head">📝 Nota detectada — <span>' + escAgenda(n.archivo) + '</span></div>';
+    html += '<div class="nota-campos">';
+    html += '<label class="nota-campo nota-campo-full">Título<input type="text" class="cal-input" id="nota-titulo-' + i + '" value="' + escAgenda(n.titulo) + '"></label>';
+    html += '<label class="nota-campo">Fecha<input type="date" class="cal-input" id="nota-fecha-' + i + '" value="' + escAgenda(n.fecha) + '"></label>';
+    html += '<label class="nota-campo">Hora inicio<input type="time" class="cal-input" id="nota-ini-' + i + '" value="' + escAgenda(n.horaInicio) + '"></label>';
+    html += '<label class="nota-campo">Hora fin<input type="time" class="cal-input" id="nota-fin-' + i + '" value="' + escAgenda(n.horaFin) + '"></label>';
+    html += '<label class="nota-campo nota-campo-full">Ubicación<input type="text" class="cal-input" id="nota-lugar-' + i + '" value="' + escAgenda(n.ubicacion) + '"></label>';
+    html += '<label class="nota-campo nota-campo-full">Descripción<textarea class="cal-input" id="nota-desc-' + i + '" rows="3">' + escAgenda(n.descripcion) + '</textarea></label>';
+    html += '</div>';
+    if (n.avisos && n.avisos.length) {
+      html += '<div class="nota-avisos">⚠ ' + escAgenda(n.avisos.join(' · ')) + '</div>';
+    }
+    if (notaDuplicada(n)) {
+      html += '<div class="nota-avisos">⚠ Ya existe un evento similar el mismo día (igual se puede crear)</div>';
+    }
+    html += '<div class="nota-acciones"><button type="button" class="btn cal-btn-primary" id="nota-btn-' + i + '" onclick="crearEventoDesdeNota(' + i + ')">✅ Crear evento</button></div>';
+    html += '</div>';
+  }
+  cont.innerHTML = html;
+  cont.style.display = '';
+}
+
+async function crearEventoDesdeNota(i) {
+  var n = notasDetectadas[i];
+  if (!n) return;
+  var titulo = (document.getElementById('nota-titulo-' + i).value || '').trim();
+  var fecha = document.getElementById('nota-fecha-' + i).value;
+  var iniH = document.getElementById('nota-ini-' + i).value;
+  var finH = document.getElementById('nota-fin-' + i).value;
+  var lugar = (document.getElementById('nota-lugar-' + i).value || '').trim();
+  var desc = (document.getElementById('nota-desc-' + i).value || '').trim();
+
+  if (!titulo) { mostrarToast('warning', 'Falta el título'); return; }
+  if (!fecha) { mostrarToast('warning', 'Falta la fecha'); return; }
+
+  var p = fecha.split('-');
+  var inicio, fin;
+  if (!iniH) {
+    // Sin hora → 00:00 a 23:59 (mismo criterio que "todo el día" en el calendario)
+    inicio = new Date(+p[0], +p[1] - 1, +p[2], 0, 0);
+    fin = new Date(+p[0], +p[1] - 1, +p[2], 23, 59);
+  } else {
+    var pi = iniH.split(':');
+    inicio = new Date(+p[0], +p[1] - 1, +p[2], +pi[0], +pi[1]);
+    if (finH) {
+      var pf = finH.split(':');
+      fin = new Date(+p[0], +p[1] - 1, +p[2], +pf[0], +pf[1]);
+      if (fin <= inicio) { mostrarToast('warning', 'La hora de fin debe ser posterior a la de inicio'); return; }
+    } else {
+      fin = new Date(inicio.getTime() + 3600000);
+    }
+  }
+
+  var btn = document.getElementById('nota-btn-' + i);
+  if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
+
+  try {
+    var res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        action: 'crearEventoCalendario',
+        datos: {
+          titulo: titulo,
+          inicio: inicio.toISOString(),
+          fin: fin.toISOString(),
+          descripcion: desc,
+          ubicacion: lugar
+        }
+      })
+    });
+    var data = await res.json();
+    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
+    if (data.exito) {
+      notasDetectadas.splice(i, 1);
+      renderNotaPreview();
+      recargar();
+    } else if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✅ Crear evento';
+    }
+  } catch (err) {
+    mostrarToast('danger', 'Error de conexión');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Crear evento'; }
+  }
 }
 
 function parsearAgendaTxt(texto) {
@@ -260,37 +511,48 @@ function escAgenda(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function renderizarPreviewAgenda(res) {
+function etiquetaEstado(estado) {
+  if (estado === 'existe') return 'Ya existe';
+  if (estado === 'repetido') return 'Repetido';
+  return 'Nuevo';
+}
+
+function renderizarPreviewImport() {
   var cont = document.getElementById('import-preview');
   var cuerpo = document.getElementById('import-preview-body');
   var resumen = document.getElementById('import-resumen');
 
-  if (res.eventos.length === 0) {
-    cont.style.display = 'none';
-    mostrarToast('warning', 'No se reconoció ningún evento en el archivo');
-    return;
-  }
-
+  var nNuevo = 0, nExiste = 0, nRep = 0;
   var html = '';
-  for (var i = 0; i < res.eventos.length; i++) {
-    var ev = res.eventos[i];
+  for (var i = 0; i < importFilas.length; i++) {
+    var fila = importFilas[i];
+    var ev = fila.ev;
+    var marcado = fila.estado === 'nuevo';
+    if (fila.estado === 'nuevo') nNuevo++;
+    else if (fila.estado === 'existe') nExiste++;
+    else nRep++;
     html += '<tr>';
-    html += '<td><input type="checkbox" class="import-check" data-i="' + i + '" checked onchange="actualizarBtnImport()"></td>';
+    html += '<td><input type="checkbox" class="import-check" data-i="' + i + '"' + (marcado ? ' checked' : '') + ' onchange="actualizarBtnImport()"></td>';
     html += '<td style="white-space:nowrap;">' + escAgenda(ev._fechaTxt) + '</td>';
-    html += '<td style="white-space:nowrap;">' + escAgenda(ev._horaTxt) + (ev._porConfirmar ? '' : '') + '</td>';
+    html += '<td style="white-space:nowrap;">' + escAgenda(ev._horaTxt) + '</td>';
     html += '<td>' + escAgenda(ev.titulo) + '</td>';
+    html += '<td><span class="estado-chip estado-' + fila.estado + '">' + etiquetaEstado(fila.estado) + '</span></td>';
     html += '</tr>';
   }
   cuerpo.innerHTML = html;
 
-  resumen.innerHTML = res.eventos.length + ' evento(s) detectado(s)' +
-    (res.avisos.length ? ' · <span style="color:#b45309;">' + res.avisos.length + ' línea(s) no reconocida(s)</span>' : '') +
-    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Sin horario en el TXT → horario por defecto 07:00 a 19:00. Los rangos de días se importan como todo el día.</span>';
+  var partes = [importFilas.length + ' evento(s) detectado(s)'];
+  partes.push('<span style="color:#166534;">' + nNuevo + ' nuevo(s)</span>');
+  if (nExiste) partes.push('<span style="color:#92400e;">' + nExiste + ' ya existen</span>');
+  if (nRep) partes.push('<span style="color:#6b7280;">' + nRep + ' repetido(s)</span>');
+  resumen.innerHTML = partes.join(' · ') +
+    (importAvisos.length ? ' · <span style="color:#b45309;">' + importAvisos.length + ' aviso(s)</span>' : '') +
+    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Las listas (xlsx/pdf/doc) se importan como serie anual: se repiten cada año. Los tildados en "Ya existe"/"Repetido" crean el evento igualmente.</span>';
 
   var avisosDiv = document.getElementById('import-avisos');
-  if (res.avisos.length) {
-    var lista = '<strong>Líneas ignoradas:</strong><ul>';
-    for (var j = 0; j < res.avisos.length; j++) lista += '<li>' + escAgenda(res.avisos[j]) + '</li>';
+  if (importAvisos.length) {
+    var lista = '<strong>Avisos:</strong><ul>';
+    for (var j = 0; j < importAvisos.length; j++) lista += '<li>' + escAgenda(importAvisos[j]) + '</li>';
     avisosDiv.innerHTML = lista + '</ul>';
     avisosDiv.style.display = '';
   } else {
@@ -298,7 +560,7 @@ function renderizarPreviewAgenda(res) {
   }
 
   cont.style.display = '';
-  document.getElementById('import-check-all').checked = true;
+  document.getElementById('import-check-all').checked = (nNuevo === importFilas.length);
   actualizarBtnImport();
 }
 
@@ -317,8 +579,16 @@ function actualizarBtnImport() {
 async function importarEventosTxt() {
   var seleccionados = [];
   document.querySelectorAll('.import-check:checked').forEach(function(c) {
-    var ev = agendaParseada[parseInt(c.getAttribute('data-i'), 10)];
-    if (ev) seleccionados.push({ titulo: ev.titulo, inicio: ev.inicio, fin: ev.fin, todoElDia: !!ev.todoElDia });
+    var fila = importFilas[parseInt(c.getAttribute('data-i'), 10)];
+    if (!fila) return;
+    var ev = fila.ev;
+    var item = { titulo: ev.titulo, inicio: ev.inicio, fin: ev.fin, todoElDia: !!ev.todoElDia };
+    if (fila.serie) {
+      item.serieAnual = true;
+      item.dedupe = true;
+      item.forzar = fila.estado !== 'nuevo';
+    }
+    seleccionados.push(item);
   });
   if (!seleccionados.length) return;
 
@@ -934,8 +1204,6 @@ async function guardarEvento() {
   var partesFechaFin = fechaFin.split('-');
   var inicio, fin;
 
-  var debugForm = 'tipo=[' + tipoSelect + '] horaInicio=[' + horaInicio + '] horaFin=[' + horaFin + ']';
-
   if (!horaInicio && !horaFin) {
     // Sin horarios: all-day desde inicio 00:00 hasta fin 23:59
     inicio = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]), 0, 0);
@@ -960,7 +1228,6 @@ async function guardarEvento() {
   // Determinar si es edición o creación nueva
   var esEdicion = !!eventoSeleccionadoId;
   var accion = esEdicion ? 'editarEventoCalendario' : 'crearEventoCalendario';
-
   // Datos originales para fallback de búsqueda
   var evOriginal = null;
   if (esEdicion) {
@@ -991,7 +1258,7 @@ async function guardarEvento() {
       })
     });
     var data = await res.json();
-    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje + ' || FORM: ' + debugForm);
+    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
     if (data.exito) recargar();
     eventoSeleccionadoId = null;
   } catch (err) {
