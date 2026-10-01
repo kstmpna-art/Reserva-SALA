@@ -898,7 +898,9 @@ function abrirModalCrear() {
   document.getElementById('crear-ubicacion').value = '';
 
   var hoy = new Date();
-  document.getElementById('crear-fecha').value = hoy.toISOString().split('T')[0];
+  var hoyStr = hoy.getFullYear() + '-' + ('0' + (hoy.getMonth() + 1)).slice(-2) + '-' + ('0' + hoy.getDate()).slice(-2);
+  document.getElementById('crear-fecha').value = hoyStr;
+  document.getElementById('crear-fecha-fin').value = hoyStr;
 
   var modal = new bootstrap.Modal(document.getElementById('modalCrearEvento'));
   modal.show();
@@ -910,6 +912,7 @@ async function guardarEvento() {
   var tipo = tipoSelect === 'Otro' ? tipoCustom : tipoSelect;
   var titulo = document.getElementById('crear-titulo').value.trim();
   var fecha = document.getElementById('crear-fecha').value;
+  var fechaFin = document.getElementById('crear-fecha-fin').value || fecha;
   var horaInicio = document.getElementById('crear-horaInicio').value;
   var horaFin = document.getElementById('crear-horaFin').value;
   var descripcion = document.getElementById('crear-descripcion').value.trim();
@@ -920,17 +923,23 @@ async function guardarEvento() {
     return;
   }
 
+  if (fechaFin < fecha) {
+    mostrarToast('warning', 'La fecha de fin no puede ser anterior a la de inicio');
+    return;
+  }
+
   var tituloCompleto = tipo + ' - ' + titulo;
 
   var partesFecha = fecha.split('-');
+  var partesFechaFin = fechaFin.split('-');
   var inicio, fin;
 
   var debugForm = 'tipo=[' + tipoSelect + '] horaInicio=[' + horaInicio + '] horaFin=[' + horaFin + ']';
 
   if (!horaInicio && !horaFin) {
-    // Sin horarios: all-day 00:00 a 23:59
+    // Sin horarios: all-day desde inicio 00:00 hasta fin 23:59
     inicio = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]), 0, 0);
-    fin = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]), 23, 59);
+    fin = new Date(parseInt(partesFechaFin[0]), parseInt(partesFechaFin[1]) - 1, parseInt(partesFechaFin[2]), 23, 59);
   } else {
     if (!horaInicio || !horaFin) {
       mostrarToast('warning', 'Completá los horarios');
@@ -940,10 +949,10 @@ async function guardarEvento() {
     var partesFin = horaFin.split(':');
     inicio = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]),
       parseInt(partesInicio[0]), parseInt(partesInicio[1]));
-    fin = new Date(parseInt(partesFecha[0]), parseInt(partesFecha[1]) - 1, parseInt(partesFecha[2]),
+    fin = new Date(parseInt(partesFechaFin[0]), parseInt(partesFechaFin[1]) - 1, parseInt(partesFechaFin[2]),
       parseInt(partesFin[0]), parseInt(partesFin[1]));
     if (fin <= inicio) {
-      mostrarToast('warning', 'La hora de fin debe ser posterior a la de inicio');
+      mostrarToast('warning', 'La fecha/hora de fin debe ser posterior a la de inicio');
       return;
     }
   }
@@ -1062,8 +1071,9 @@ async function editarEvento() {
   if (match) titulo = match[1];
   document.getElementById('crear-titulo').value = titulo;
 
-  // Fecha
+  // Fechas de inicio y fin
   document.getElementById('crear-fecha').value = formatearFechaInput(ev.inicio);
+  document.getElementById('crear-fecha-fin').value = formatearFechaInput(ev.fin) || formatearFechaInput(ev.inicio);
 
   // Horarios (all-day eventos no tienen hora)
   var horaInicio = formatearHora(ev.inicio);
