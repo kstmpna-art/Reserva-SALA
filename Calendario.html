@@ -95,7 +95,7 @@
         </div>
         <span id="fecha-contador" class="date-counter" style="display:none;">0</span>
         <input type="text" id="buscador" class="cal-search-input" placeholder="Buscar por título, descripción, ubicación..." oninput="buscarEventos(this.value)">
-        <button type="button" class="cal-btn-import" onclick="abrirImportarTxt()">📥 Importar TXT</button>
+        <button type="button" class="cal-btn-import" onclick="abrirImportarTxt()">📥 Importar archivos</button>
         <button type="button" class="cal-btn-pdf" onclick="abrirModalPDF()">⬇ PDF</button>
       </div>
     </div>
@@ -226,20 +226,30 @@
     </div>
   </div>
 
-  <!-- Modal Importar TXT -->
+  <!-- Modal Importar archivos -->
   <div class="modal fade" id="modalImportarTxt" tabindex="-1">
     <div class="modal-dialog modal-lg">
       <div class="modal-content cal-modal">
         <div class="modal-header cal-modal-create">
-          <h5 class="modal-title fw-bold">📥 Importar agenda desde TXT</h5>
+          <h5 class="modal-title fw-bold">📥 Importar archivos al calendario</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <p class="mb-3" style="font-size:13px;color:#6b7280;">
-            Seleccioná un archivo <strong>.txt</strong> con el formato de agenda. Cada línea debe empezar con la fecha
-            (ej: <code>15/SEP 11:00 HS.- Título del evento</code>). El año se toma automáticamente.
+            Arrastrá o seleccioná uno o más archivos:
+            <strong>.txt</strong> (agenda con formato),
+            <strong>.xlsx</strong> (aniversarios de dependencias),
+            <strong>.pdf / .doc</strong> (listas de cumpleaños, o
+            <strong>notas oficiales</strong>: se extraen título, fecha, hora y lugar con vista previa editable).
+            Los archivos de listas se importan como <strong>serie anual</strong> (se repiten cada año).
+            En la vista previa, los que ya existen en el calendario aparecen marcados y sin tildar.
           </p>
-          <input type="file" id="import-txt-archivo" accept=".txt,text/plain" class="cal-input mb-3" onchange="leerArchivoAgenda(this)">
+          <div class="import-dropzone mb-3" id="import-dropzone"
+               ondragover="importDragOver(event)" ondragleave="importDragLeave(event)" ondrop="importDrop(event)">
+            <div class="import-dropzone-texto">📄 Arrastrá aquí los archivos (.txt, .xlsx, .doc, .pdf)</div>
+            <input type="file" id="import-txt-archivo" accept=".txt,.xlsx,.doc,.docx,.pdf" multiple class="cal-input" onchange="leerArchivosAgenda(this)">
+          </div>
+          <div id="nota-preview" style="display:none;"></div>
           <div id="import-preview" style="display:none;">
             <div class="import-resumen mb-2" id="import-resumen"></div>
             <div class="import-tabla-wrap">
@@ -250,7 +260,7 @@
                     <th>Fecha</th>
                     <th>Horario</th>
                     <th>Título</th>
-                    <th style="width:70px;">Acción</th>
+                    <th style="width:92px;">Estado</th>
                   </tr>
                 </thead>
                 <tbody id="import-preview-body"></tbody>
@@ -312,6 +322,7 @@
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="js/importar.js"></script>
   <script src="js/calendario.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
