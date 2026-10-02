@@ -614,6 +614,7 @@
       archivo: archivo || '',
       titulo: '',
       fecha: '',
+      fechaFin: '',
       horaInicio: '',
       horaFin: '',
       ubicacion: '',
@@ -651,20 +652,31 @@
     if (para) nota.descripcion = 'Para: ' + para;
     if (copia) nota.descripcion += (nota.descripcion ? '\n' : '') + 'Con copia: ' + copia;
 
-    // Fecha
-    var dd = null, mm = null, anio = null, m;
-    if ((m = t.match(/el día (\d{1,2})\s+de\s+([a-záéíóúñ]+)(?:\s+de\s+(?:año\s+)?(\d{4}))?/i))) {
-      dd = +m[1]; mm = MESES_NOTA[quitarAcentos(m[2]).toLowerCase()]; anio = m[3] ? +m[3] : null;
-    } else if ((m = t.match(/el día (\d{1,2})\s+del\s+corriente/i))) {
-      dd = +m[1]; mm = hoyMes;
-    } else if ((m = t.match(/el día (\d{1,2})\s+del\s+pr[oó]ximo\s+mes/i))) {
-      dd = +m[1];
-      mm = (hoyMes === 12) ? 1 : hoyMes + 1;
-      if (hoyMes === 12) anio = anioBase + 1;
-    } else if ((m = t.match(/el día (\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{4}))?/))) {
-      dd = +m[1]; mm = +m[2]; anio = m[3] ? +m[3] : null;
-    } else if ((m = t.match(/\b(?:el|del|desde el) (\d{1,2})\s+de\s+([a-záéíóúñ]+)/i))) {
-      dd = +m[1]; mm = MESES_NOTA[quitarAcentos(m[2]).toLowerCase()];
+    // Fecha — primero se busca un rango multi-día ("los días 26 a 29 de octubre",
+    // "del 26 al 29 de octubre de 2026", "26/10 al 29/10/2026"); si no hay,
+    // se analiza una fecha simple como hasta ahora.
+    var dd = null, mm = null, anio = null, m, ddFin = null;
+    var mR = t.match(/(?:los d[ií]as?\s+)?(?:del\s+|desde\s+el\s+)?(\d{1,2})\s*(?:al|a|hasta el|-)\s+(\d{1,2})\s+de\s+([a-záéíóúñ]+)(?:\s+de\s+(?:año\s+)?(\d{4}))?/i);
+    if (mR) {
+      dd = +mR[1]; ddFin = +mR[2]; mm = MESES_NOTA[quitarAcentos(mR[3]).toLowerCase()]; anio = mR[4] ? +mR[4] : null;
+    } else if ((mR = t.match(/(?:del\s+|desde\s+el\s+)?(\d{1,2})\s*\/\s*(\d{1,2})\s*(?:al|a)\s+(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{4}))?/))) {
+      dd = +mR[1]; ddFin = +mR[3]; mm = +mR[2]; anio = mR[5] ? +mR[5] : null;
+    }
+    if (!(mm && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && ddFin && ddFin >= dd && ddFin <= 31)) {
+      dd = null; mm = null; anio = null; ddFin = null;
+      if ((m = t.match(/el día (\d{1,2})\s+de\s+([a-záéíóúñ]+)(?:\s+de\s+(?:año\s+)?(\d{4}))?/i))) {
+        dd = +m[1]; mm = MESES_NOTA[quitarAcentos(m[2]).toLowerCase()]; anio = m[3] ? +m[3] : null;
+      } else if ((m = t.match(/el día (\d{1,2})\s+del\s+corriente/i))) {
+        dd = +m[1]; mm = hoyMes;
+      } else if ((m = t.match(/el día (\d{1,2})\s+del\s+pr[oó]ximo\s+mes/i))) {
+        dd = +m[1];
+        mm = (hoyMes === 12) ? 1 : hoyMes + 1;
+        if (hoyMes === 12) anio = anioBase + 1;
+      } else if ((m = t.match(/el día (\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{4}))?/))) {
+        dd = +m[1]; mm = +m[2]; anio = m[3] ? +m[3] : null;
+      } else if ((m = t.match(/\b(?:el|del|desde el) (\d{1,2})\s+de\s+([a-záéíóúñ]+)/i))) {
+        dd = +m[1]; mm = MESES_NOTA[quitarAcentos(m[2]).toLowerCase()];
+      }
     }
     if (dd && mm && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
       if (!anio) {
@@ -672,6 +684,9 @@
         if (mm < hoyMes && (hoyMes - mm) > 6) anio = anioBase + 1;
       }
       nota.fecha = anio + '-' + pad2(mm) + '-' + pad2(dd);
+      if (ddFin && ddFin !== dd) {
+        nota.fechaFin = anio + '-' + pad2(mm) + '-' + pad2(ddFin);
+      }
     } else {
       nota.avisos.push('Fecha no reconocida — completar a mano');
     }
@@ -679,6 +694,9 @@
     // Horario
     var hm;
     if ((hm = t.match(/de las (\d{1,2})(?::(\d{2}))?\s*(?:hs|horas)?\s*(?:a|al)\s*las (\d{1,2})(?::(\d{2}))?/i))) {
+      nota.horaInicio = pad2(+hm[1]) + ':' + pad2(parseInt(hm[2] || '0', 10));
+      nota.horaFin = pad2(+hm[3]) + ':' + pad2(parseInt(hm[4] || '0', 10));
+    } else if ((hm = t.match(/(?:entre|de)\s+las\s+(\d{1,2})(?::(\d{2}))?\s*(?:hs|horas)?\s*(?:y|a|al)\s+las\s+(\d{1,2})(?::(\d{2}))?/i))) {
       nota.horaInicio = pad2(+hm[1]) + ':' + pad2(parseInt(hm[2] || '0', 10));
       nota.horaFin = pad2(+hm[3]) + ':' + pad2(parseInt(hm[4] || '0', 10));
     } else if ((hm = t.match(/a (?:partir de )?las (\d{1,2})(?::(\d{2}))?\s*(?:hs\b|horas)?/i))) {
@@ -703,7 +721,78 @@
       }
     }
 
+    // Resumen del contenido (lo más importante) → descripción.
+    // Los destinatarios (De/Para/Copia) no son tan relevantes: solo quedan
+    // como respaldo si del contenido no se pudo extraer nada.
+    nota.texto = String(texto || '');
+    nota.resumen = resumirNotaReglas(texto, nota.titulo);
+    if (nota.resumen) nota.descripcion = nota.resumen;
+
     return nota;
+  }
+
+  // ---------------- Resumen por reglas (contenido de la nota) ----------------
+
+  var RE_RES_ACCION = /\b(solicita|solicite|solicito|solicitudes|aprueba|apruebe|aprueben|aprobar|aprobado|autoriza|autorice|autorizado|dispone|disponga|designa|designe|designado|nombra|nombrado|comunica|comunique|comunica|informa|informe|informar|instruye|instruya|debe|deber[aá]n?|tendr[aá]|procede|proceder[áa]|se lleva|se llevar[aá]|se realiza|se realizar[aá]|se desarrolla|se desarrollar[aá]|convoca|convocado|resuelve|resuelto|determina|determinado|acuerda|establece|establecido|se crea|se dispone|se aprueba|se autoriza|se designa|se comunica|se adjunta|adjunta|propone|propuesta|recomienda|recomendaci[oó]n|reuni[oó]n|capacitaci[oó]n|encuentro|mesa de trabajo|operativo|ejercicio)\b/i;
+  var RE_RES_PLAZO = /\b(plazo|hasta el|hasta la|dentro de|a partir del|a partir de|fecha l[ií]mite|en el marco|per[ií]odo|durante|corriente|pr[oó]ximo|anual|semanal|mensual)\b/i;
+  var RE_RES_LUGAR = /\b(en|al|a la)\s+(la\s+)?(sala|aula|edificio|base|prefectura|sede|sal[oó]n|oficina|predio|comando|distrito|agrupamiento|dependencia|dependencias)\b/i;
+  var RE_RES_NUM = /\b(\d{1,2}[\/-]\d{1,2}([\/-]\d{2,4})?|\d{1,2}\s+de\s+[a-záéíóúñ]+|\$\s?\d|\d{1,3}(?:\.\d{3})+|\d+\s?%)/gi;
+  var RE_RES_ENCAB = /^(de:|para:|con copia|referencia|n[°º]\s|nota n|distribuci|se[ñn]or(es)?\b|de mi mayor|dependencia:|domicilio:|tel[eé]fono|repu[bó]bica argentina|año de la grandeza)/i;
+
+  // Elige las frases más importantes del CONTENIDO (no del encabezado).
+  // Devuelve viñetas "• ..." o '' si no hay nada.
+  function resumirNotaReglas(texto, excluir) {
+    var t = String(texto || '').replace(/\r/g, '');
+    if (!t.replace(/\s+/g, '')) return '';
+    t = t.replace(/[ \t]*\n[ \t]*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+    var oraciones = t.split(/(?<=[.!?:;])\s+/);
+    var candidatas = [];
+    var ex = excluir ? claveTexto(excluir) : '';
+    for (var i = 0; i < oraciones.length; i++) {
+      var o = limpiarEspacios(oraciones[i].replace(/^[•\-–\s]+/, ''));
+      // etiquetas pegadas al final ("... PEGASO A:") — ensucian y rompen la
+      // comparación con el título
+      o = o.replace(/\s+[A-ZÁÉÍÓÚ]{1,4}:(?=\s*$)/, '').trim();
+      if (o.length < 40 || o.length > 600) continue;
+      if (RE_RES_ENCAB.test(o)) continue;
+      if (/de mi mayor consideraci|sin otro particular|saluda atte|atentamente|tengo el agrado|me dirijo a usted|saludos cordiales/i.test(o)) continue; // saludo/cierre
+      if (ex && (claveTexto(o) === ex || (o.length - ex.length < 20 && claveTexto(o).indexOf(ex) === 0))) continue; // ya está en el campo Título
+      // texto corrupto del PDF (fuentes incrustadas): poca proporción de letras
+      var letras = (o.match(/[a-záéíóúñü0-9 .,\-()#\/]/gi) || []).length;
+      if (letras < o.length * 0.55) continue;
+      var puntos = 0;
+      if (RE_RES_ACCION.test(o)) puntos += 3;
+      if (RE_RES_PLAZO.test(o)) puntos += 2;
+      if (RE_RES_LUGAR.test(o)) puntos += 1;
+      var nums = o.match(RE_RES_NUM);
+      if (nums) puntos += Math.min(nums.length, 2);
+      if (puntos >= 2) candidatas.push({ i: i, texto: o, puntos: puntos });
+    }
+
+    // Fallback: primeras líneas del cuerpo después del saludo
+    if (!candidatas.length) {
+      var iS = t.search(/De mi mayor consideraci/i);
+      var cuerpo = (iS >= 0 ? t.substring(iS) : t)
+        .replace(/^\s*De mi mayor consideraci[oó]n:?\s*/i, '').trim();
+      if (!cuerpo) return '';
+      return '• ' + cuerpo.substring(0, 450);
+    }
+
+    // Top 5 por puntaje, en el orden original; ~800 caracteres en total
+    candidatas.sort(function (a, b) { return b.puntos - a.puntos || a.i - b.i; });
+    var elegidas = candidatas.slice(0, 5);
+    elegidas.sort(function (a, b) { return a.i - b.i; });
+    var partes = [], total = 0;
+    for (var k = 0; k < elegidas.length; k++) {
+      var cand = elegidas[k].texto;
+      var vista = cand.length > 380 ? cand.substring(0, 379) + '…' : cand;
+      var costo = vista.length + 3;
+      if (partes.length && total + costo > 800) break;
+      partes.push('• ' + vista);
+      total += costo;
+    }
+    return partes.join('\n');
   }
 
   // ---------------- Deduplicación ----------------
@@ -761,7 +850,8 @@
     duplicadoEnLote: duplicadoEnLote,
     duplicadoEnCalendario: duplicadoEnCalendario,
     esNotaOficial: esNotaOficial,
-    parsearNota: parsearNota
+    parsearNota: parsearNota,
+    resumirNotaReglas: resumirNotaReglas
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
