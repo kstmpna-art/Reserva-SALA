@@ -1,4 +1,4 @@
-var API_URL = 'https://script.google.com/macros/s/AKfycbw-9Z3vI83sdCYg7ayhlEDUs_Nh_SUIJFzXnfItytI8LYGau62xfDga6G0XyIC0lp6f/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbxMo4XYtDmZwBm9RsSd1KfL-WC_kKHQGVviNxdo7WPn-zuDNd7xD9WufwR06YiGFVvw/exec';
 
 var todosLosEventos = [];
 var eventosFiltrados = [];
@@ -53,7 +53,7 @@ function cargarTodosLosEventos() {
   document.getElementById('cargando').style.display = '';
   document.getElementById('kpis-calendario').style.display = 'none';
   document.getElementById('filtros-periodo').style.display = 'none';
-  obtenerEventosAPI(desde, hasta).then(function(data) {
+  cargarAnualResiliente(desde, hasta).then(function(data) {
     document.getElementById('cargando').style.display = 'none';
     if (data && data.exito) {
       todosLosEventos = data.eventos;
@@ -62,9 +62,10 @@ function cargarTodosLosEventos() {
     } else {
       mostrarToast('danger', 'Error: ' + (data && data.mensaje ? data.mensaje : 'desconocido'));
     }
-  }).catch(function() {
+  }).catch(function(err) {
     document.getElementById('cargando').style.display = 'none';
-    mostrarToast('danger', 'Error de conexión');
+    console.error('[cargarTodosLosEventos] falló:', err);
+    mostrarToast('danger', 'No se pudo conectar con el servidor — probá de nuevo en unos segundos');
   });
 }
 
@@ -85,13 +86,94 @@ function refrescarEventosEnSegundoPlano(desde, hasta) {
 
 function obtenerEventosAPI(desde, hasta) {
   var url = API_URL + '?action=obtenerEventosCalendario&desde=' + encodeURIComponent(desde.toISOString()) + '&hasta=' + encodeURIComponent(hasta.toISOString());
-  return fetch(url).then(function(res) { return res.json(); });
+  return fetchJson(url, undefined, 3);
+}
+
+// GET con reintentos: Apps Script a veces devuelve 404/5xx transitorio en el
+// redirect a script.googleusercontent.com cuando la ejecución tarda.
+async function fetchJson(url, opciones, intentos) {
+  intentos = intentos || 3;
+  var ultimo = null;
+  for (var i = 1; i <= intentos; i++) {
+    try {
+      var res = await fetch(url, opciones);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch (err) {
+      ultimo = err;
+      console.warn('[fetch] intento ' + i + '/' + intentos + ' falló:', err);
+      if (i < intentos) await new Promise(function(r) { setTimeout(r, 1200 * i); });
+    }
+  }
+  throw ultimo;
+}
+
+// Si el pedido del año completo falla, se pide en dos mitades (más liviano).
+function obtenerEventosPorPartes(desde, hasta) {
+  var medio = new Date(Math.floor((desde.getTime() + hasta.getTime()) / 2));
+  medio.setHours(12, 0, 0, 0);
+  var desdeSegunda = new Date(medio.getTime());
+  desdeSegunda.setDate(desdeSegunda.getDate() + 1);
+  return Promise.all([
+    obtenerEventosAPI(desde, medio),
+    obtenerEventosAPI(desdeSegunda, hasta)
+  ]).then(function(resps) {
+    var vistos = {};
+    var todos = [];
+    for (var k = 0; k < resps.length; k++) {
+      var r = resps[k];
+      if (!r || !r.exito) continue;
+      for (var j = 0; j < r.eventos.length; j++) {
+        var ev = r.eventos[j];
+        if (!vistos[ev.id]) { vistos[ev.id] = true; todos.push(ev); }
+      }
+    }
+    return { exito: true, eventos: todos };
+  });
+}
+
+// Primero el pedido completo (con reintentos); si falla, en dos mitades.
+function cargarAnualResiliente(desde, hasta) {
+  return obtenerEventosAPI(desde, hasta).then(function(data) {
+    if (data && data.exito) return data;
+    return obtenerEventosPorPartes(desde, hasta);
+  }, function() {
+    return obtenerEventosPorPartes(desde, hasta);
+  });
 }
 
 function recargar() {
-  try { localStorage.removeItem(claveCacheCal()); } catch(e) {}
-  todosLosEventos = [];
-  cargarTodosLosEventos();
+  var hoy = new Date();
+  var desde = new Date(hoy.getFullYear(), 0, 1);
+  var hasta = new Date(hoy.getFullYear(), 11, 31, 23, 59, 59);
+  var habiaDatos = todosLosEventos.length > 0;
+  var btn = document.getElementById('btn-actualizar-cal');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Actualizando…'; }
+  function fin() { if (btn) { btn.disabled = false; btn.innerHTML = '↻ Actualizar'; } }
+  // No se borra nada antes de tener la respuesta: si falla, se conservan
+  // los datos anteriores en pantalla (evita quedar sin calendario).
+  cargarAnualResiliente(desde, hasta).then(function(data) {
+    fin();
+    if (!data || data.exito !== true) {
+      mostrarToast(habiaDatos ? 'warning' : 'danger',
+        'El servidor no respondió bien (' + ((data && data.mensaje) || 'error desconocido') + ')' +
+        (habiaDatos ? ' — se mantienen los datos anteriores' : ''));
+      return;
+    }
+    if (!data.eventos.length && habiaDatos) {
+      mostrarToast('warning', 'El servidor respondió sin eventos — se mantienen los datos anteriores');
+      return;
+    }
+    todosLosEventos = data.eventos;
+    try { localStorage.setItem(claveCacheCal(), JSON.stringify({ ts: Date.now(), data: data.eventos })); } catch (e) {}
+    pintarEventos();
+    mostrarToast('success', 'Calendario actualizado — ' + data.eventos.length + ' eventos');
+  }).catch(function(err) {
+    fin();
+    console.error('[recargar] falló:', err);
+    if (habiaDatos) mostrarToast('warning', 'Sin conexión — se mantienen los datos anteriores');
+    else mostrarToast('danger', 'No se pudo conectar con el servidor — probá de nuevo en unos segundos');
+  });
 }
 
 // ============================================================
@@ -291,10 +373,11 @@ function renderNotaPreview() {
     html += '<div class="nota-campos">';
     html += '<label class="nota-campo nota-campo-full">Título<input type="text" class="cal-input" id="nota-titulo-' + i + '" value="' + escAgenda(n.titulo) + '"></label>';
     html += '<label class="nota-campo">Fecha<input type="date" class="cal-input" id="nota-fecha-' + i + '" value="' + escAgenda(n.fecha) + '"></label>';
+    html += '<label class="nota-campo">Fecha fin<input type="date" class="cal-input" id="nota-fechafin-' + i + '" value="' + escAgenda(n.fechaFin || n.fecha) + '"></label>';
     html += '<label class="nota-campo">Hora inicio<input type="time" class="cal-input" id="nota-ini-' + i + '" value="' + escAgenda(n.horaInicio) + '"></label>';
     html += '<label class="nota-campo">Hora fin<input type="time" class="cal-input" id="nota-fin-' + i + '" value="' + escAgenda(n.horaFin) + '"></label>';
     html += '<label class="nota-campo nota-campo-full">Ubicación<input type="text" class="cal-input" id="nota-lugar-' + i + '" value="' + escAgenda(n.ubicacion) + '"></label>';
-    html += '<label class="nota-campo nota-campo-full">Descripción<textarea class="cal-input" id="nota-desc-' + i + '" rows="3">' + escAgenda(n.descripcion) + '</textarea></label>';
+    html += '<label class="nota-campo nota-campo-full">Descripción (resumen de la nota)<textarea class="cal-input" id="nota-desc-' + i + '" rows="4">' + escAgenda(n.resumen || n.descripcion) + '</textarea></label>';
     html += '</div>';
     if (n.avisos && n.avisos.length) {
       html += '<div class="nota-avisos">⚠ ' + escAgenda(n.avisos.join(' · ')) + '</div>';
@@ -302,18 +385,39 @@ function renderNotaPreview() {
     if (notaDuplicada(n)) {
       html += '<div class="nota-avisos">⚠ Ya existe un evento similar el mismo día (igual se puede crear)</div>';
     }
-    html += '<div class="nota-acciones"><button type="button" class="btn cal-btn-primary" id="nota-btn-' + i + '" onclick="crearEventoDesdeNota(' + i + ')">✅ Crear evento</button></div>';
+    html += '<div class="nota-acciones">' +
+      '<button type="button" class="btn nota-btn-ia" id="nota-ia-' + i + '" onclick="resumirNotaConIA(' + i + ')">✦ Resumir con IA</button>' +
+      '<button type="button" class="btn cal-btn-primary" id="nota-btn-' + i + '" onclick="crearEventoDesdeNota(' + i + ')">✅ Crear evento</button>' +
+      '</div>';
     html += '</div>';
   }
   cont.innerHTML = html;
   cont.style.display = '';
 }
 
+// Reemplaza la descripción (resumen por reglas) con un resumen generado por IA.
+// Si la IA falla, se conserva el resumen que ya estaba.
+async function resumirNotaConIA(i) {
+  var n = notasDetectadas[i];
+  if (!n || !n.texto) { mostrarToast('warning', 'No hay texto de la nota para resumir'); return; }
+  var btn = document.getElementById('nota-ia-' + i);
+  if (btn) { btn.disabled = true; btn.textContent = '✦ Resumiendo...'; }
+  var data = await postJsonAccion('resumirNotaIA', { texto: n.texto.substring(0, 12000) });
+  if (data && data.exito && data.resumen) {
+    var ta = document.getElementById('nota-desc-' + i);
+    if (ta) ta.value = data.resumen;
+    mostrarToast('success', 'Resumen generado con IA — podés editarlo');
+  } else {
+    mostrarToast('danger', (data && data.mensaje) || 'No se pudo resumir con IA (se mantiene el resumen automático)');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '✦ Resumir con IA'; }
+}
+
 // POST con reintento (Google a veces devuelve 404 transitorio en el redirect
 // a script.googleusercontent.com/macros/echo). Devuelve la data o null.
 async function postJsonAccion(action, datos) {
   var cuerpo = { action: action, datos: datos };
-  for (var intento = 1; intento <= 2; intento++) {
+  for (var intento = 1; intento <= 3; intento++) {
     try {
       var res = await fetch(API_URL, {
         method: 'POST',
@@ -324,14 +428,14 @@ async function postJsonAccion(action, datos) {
         var detalle = '';
         try { detalle = (await res.text()).substring(0, 200); } catch (e2) {}
         console.error('[post] HTTP ' + res.status + ' → ' + res.url, detalle);
-        if (intento === 1) { await new Promise(function(r) { setTimeout(r, 1500); }); continue; }
+        if (intento < 3) { await new Promise(function(r) { setTimeout(r, 1200 * intento); }); continue; }
         mostrarToast('danger', 'El servidor respondió HTTP ' + res.status + ' (detalle en consola F12)');
         return null;
       }
       return await res.json();
     } catch (err) {
       console.error('[post] error de red (intento ' + intento + '):', err);
-      if (intento === 1) { await new Promise(function(r) { setTimeout(r, 1500); }); continue; }
+      if (intento < 3) { await new Promise(function(r) { setTimeout(r, 1200 * intento); }); continue; }
       mostrarToast('danger', 'Sin respuesta del servidor (detalle en consola F12)');
       return null;
     }
@@ -344,6 +448,8 @@ async function crearEventoDesdeNota(i) {
   if (!n) return;
   var titulo = (document.getElementById('nota-titulo-' + i).value || '').trim();
   var fecha = document.getElementById('nota-fecha-' + i).value;
+  var campoFechaFin = document.getElementById('nota-fechafin-' + i);
+  var fechaFin = campoFechaFin ? campoFechaFin.value : '';
   var iniH = document.getElementById('nota-ini-' + i).value;
   var finH = document.getElementById('nota-fin-' + i).value;
   var lugar = (document.getElementById('nota-lugar-' + i).value || '').trim();
@@ -351,20 +457,25 @@ async function crearEventoDesdeNota(i) {
 
   if (!titulo) { mostrarToast('warning', 'Falta el título'); return; }
   if (!fecha) { mostrarToast('warning', 'Falta la fecha'); return; }
+  if (fechaFin && fechaFin < fecha) { mostrarToast('warning', 'La fecha de fin debe ser posterior o igual a la de inicio'); return; }
+  if (!fechaFin) fechaFin = fecha;
 
   var p = fecha.split('-');
+  var pfFin = fechaFin.split('-');
   var inicio, fin;
   if (!iniH) {
-    // Sin hora → 00:00 a 23:59 (mismo criterio que "todo el día" en el calendario)
+    // Sin hora → primer día 00:00 a último día 23:59 (multi-día si hay fecha de fin)
     inicio = new Date(+p[0], +p[1] - 1, +p[2], 0, 0);
-    fin = new Date(+p[0], +p[1] - 1, +p[2], 23, 59);
+    fin = new Date(+pfFin[0], +pfFin[1] - 1, +pfFin[2], 23, 59);
   } else {
     var pi = iniH.split(':');
     inicio = new Date(+p[0], +p[1] - 1, +p[2], +pi[0], +pi[1]);
     if (finH) {
       var pf = finH.split(':');
-      fin = new Date(+p[0], +p[1] - 1, +p[2], +pf[0], +pf[1]);
-      if (fin <= inicio) { mostrarToast('warning', 'La hora de fin debe ser posterior a la de inicio'); return; }
+      fin = new Date(+pfFin[0], +pfFin[1] - 1, +pfFin[2], +pf[0], +pf[1]);
+      if (fin <= inicio) { mostrarToast('warning', 'La fecha/hora de fin debe ser posterior a la de inicio'); return; }
+    } else if (fechaFin !== fecha) {
+      fin = new Date(+pfFin[0], +pfFin[1] - 1, +pfFin[2], 23, 59);
     } else {
       fin = new Date(inicio.getTime() + 3600000);
     }
@@ -410,7 +521,7 @@ function parsearAgendaTxt(texto) {
   var eventos = [];
   var avisos = [];
 
-  var RE_RANGO   = /^(\d{1,2})\s+(?:AL)\s+(\d{1,2})\s*\/?\s*([A-Za-zÁÉÍÓÚÑñ]{3,})\s*(.*)$/i;
+  var RE_RANGO   = /^(?:DEL\s+)?(\d{1,2})\s+(?:AL)\s+(\d{1,2})\s*(?:DE\s+|\/\s*)?([A-Za-zÁÉÍÓÚÑñ]{3,})\s*(.*)$/i;
   var RE_LISTA3  = /^(\d{1,2})\s*,\s*(\d{1,2})\s+(?:Y)\s+(\d{1,2})\s*\/?\s*([A-Za-zÁÉÍÓÚÑñ]{3,})\s*(.*)$/i;
   var RE_LISTA2  = /^(\d{1,2})\s+(?:Y)\s+(\d{1,2})\s*\/\s*([A-Za-zÁÉÍÓÚÑñ]{3,})\s*(.*)$/i;
   var RE_SIMPLE  = /^(\d{1,2})\s*\/\s*([A-Za-zÁÉÍÓÚÑñ]{3,})\s*(.*)$/;
@@ -559,11 +670,13 @@ function renderizarPreviewImport() {
     else if (fila.estado === 'existe') nExiste++;
     else nRep++;
     var fechaVal = fechaDeIso(ev.inicio);
+    var fechaFinVal = fechaDeIso(ev.fin) || fechaVal;
     var hIni = ev.todoElDia ? '' : horaDeIso(ev.inicio);
     var hFin = ev.todoElDia ? '' : horaDeIso(ev.fin);
     html += '<tr>';
     html += '<td><input type="checkbox" class="import-check" data-i="' + i + '"' + (marcado ? ' checked' : '') + ' onchange="actualizarBtnImport()"></td>';
     html += '<td><input type="date" class="cal-input import-fecha" value="' + escAgenda(fechaVal) + '" onchange="editarFilaFecha(' + i + ', this.value)"></td>';
+    html += '<td><input type="date" class="cal-input import-fecha-fin" value="' + escAgenda(fechaFinVal) + '" onchange="editarFilaFin(' + i + ', this.value)"></td>';
     html += '<td class="import-hora-celda">' +
       '<input type="time" class="cal-input import-hora-ini" id="import-hora-ini-' + i + '" value="' + escAgenda(hIni) + '" onchange="editarFilaHora(' + i + ')">' +
       '<span class="import-hora-sep">a</span>' +
@@ -582,7 +695,7 @@ function renderizarPreviewImport() {
   if (nRep) partes.push('<span style="color:#6b7280;">' + nRep + ' repetido(s)</span>');
   resumen.innerHTML = partes.join(' · ') +
     (importAvisos.length ? ' · <span style="color:#b45309;">' + importAvisos.length + ' aviso(s)</span>' : '') +
-    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Podés editar fecha, horario y título antes de importar. Las listas (xlsx/pdf/doc) se importan como serie anual: se repiten cada año. Los tildados en "Ya existe"/"Repetido" crean el evento igualmente.</span>';
+    '<br><span style="font-size:11px;color:#6b7280;font-weight:400;">* Podés editar fecha de inicio, fecha de fin (para eventos de varios días), horario y título antes de importar. Las listas (xlsx/pdf/doc) se importan como serie anual: se repiten cada año. Los tildados en "Ya existe"/"Repetido" crean el evento igualmente.</span>';
 
   var avisosDiv = document.getElementById('import-avisos');
   if (importAvisos.length) {
@@ -653,6 +766,34 @@ function editarFilaFecha(i, valor) {
       ev.fin = fFin + 'T' + tFin + ':00';
     } else {
       ev.inicio = new Date(valor + 'T' + tIni).toISOString();
+      ev.fin = new Date(fFin + 'T' + tFin).toISOString();
+    }
+  }
+}
+
+// Edita la fecha de FIN de la fila (para eventos de varios días).
+function editarFilaFin(i, valor) {
+  var fila = importFilas[i];
+  if (!fila || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return;
+  var ev = fila.ev;
+  var fIni = fechaDeIso(ev.inicio);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fIni)) return;
+  var fFin = valor < fIni ? fIni : valor;   // el fin nunca puede ser anterior al inicio
+  if (fila.serie && ev.todoElDia && fFin !== fIni) {
+    mostrarToast('warning', 'Las series anuales de "todo el día" se crean de un solo día: el fin no se aplica');
+    fFin = fIni;
+  }
+  if (ev.todoElDia) {
+    ev.inicio = fIni;
+    ev.fin = fFin;
+  } else {
+    var tIni = horaDeIso(ev.inicio) || '00:00';
+    var tFin = horaDeIso(ev.fin) || tIni;
+    if (fila.serie) {
+      ev.inicio = fIni + 'T' + tIni + ':00';
+      ev.fin = fFin + 'T' + tFin + ':00';
+    } else {
+      ev.inicio = new Date(fIni + 'T' + tIni).toISOString();
       ev.fin = new Date(fFin + 'T' + tFin).toISOString();
     }
   }
@@ -750,8 +891,11 @@ async function importarEventosTxt() {
 }
 
 function clasificarEvento(ev) {
-  var info = ((ev.titulo || '') + ' ' + (ev.descripcion || '')).toLowerCase();
+  var titulo = (ev.titulo || '').toLowerCase();
+  var info = titulo + ' ' + (ev.descripcion || '').toLowerCase();
   var cal = (ev.calendario || '').toLowerCase();
+  // Prefijo del título "Evento - ..." manda sobre las demás pistas del texto
+  if (/^evento\b/.test(titulo)) return 'eventos';
   if (cal.indexOf('cumplea') !== -1 || cal.indexOf('aniversario') !== -1) return 'cumpleanos';
   if (info.indexOf('cumpleaño') !== -1 || info.indexOf('cumpleanos') !== -1 || info.indexOf('birthday') !== -1) return 'cumpleanos';
   if (info.indexOf('sala de situación') !== -1 || info.indexOf('sala dtra') !== -1 || info.indexOf('dtra-') !== -1) return 'sala';
@@ -764,12 +908,22 @@ function clasificarEvento(ev) {
   return 'otros';
 }
 
+function iconoTipo(tipo) {
+  var iconos = {
+    cumpleanos: '🎂', sala: '📋', reuniones: '🤝', capacitaciones: '📚',
+    eventos: '🎯', audiencias: '🎤', feriados: '🚫', compromisos: '📌',
+    viajes: '✈️'
+  };
+  return iconos[tipo] || '📌';
+}
+
 function asignarColor(tipo) {
   var colores = {
     cumpleanos: { fondo: '#f43f5e', borde: '#e11d48', texto: 'Cumpleaños', badge: 'bg-tipo-cumpleanos' },
     sala: { fondo: '#f59e0b', borde: '#d97706', texto: 'Sala de Situación', badge: 'bg-tipo-sala' },
     reuniones: { fondo: '#10b981', borde: '#059669', texto: 'Reunión', badge: 'bg-tipo-reuniones' },
     capacitaciones: { fondo: '#8b5cf6', borde: '#7c3aed', texto: 'Capacitación', badge: 'bg-tipo-capacitaciones' },
+    eventos: { fondo: '#0ea5e9', borde: '#0284c7', texto: 'Evento', badge: 'bg-tipo-evento' },
     audiencias: { fondo: '#3b82f6', borde: '#2563eb', texto: 'Audiencia', badge: 'bg-primary' },
     feriados: { fondo: '#ef4444', borde: '#dc2626', texto: 'Feriado', badge: 'bg-danger' },
     compromisos: { fondo: '#f97316', borde: '#ea580c', texto: 'Compromiso', badge: 'bg-tipo-compromiso' },
@@ -782,6 +936,32 @@ function asignarColor(tipo) {
 function parsearFecha(fechaStr) {
   var partes = fechaStr.split('T')[0].split('-');
   return new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
+}
+
+// Rango [inicio, fin] (fechas locales, día completo) de un evento.
+// El backend entrega fin inclusivo (último día 23:59 o mismo día de fecha).
+function rangoEvento(ev) {
+  var ini = parsearFecha(ev.inicio || '');
+  var fin = parsearFecha(ev.fin || ev.inicio || '');
+  if (isNaN(ini.getTime())) { ini = new Date(); ini.setHours(0, 0, 0, 0); }
+  if (isNaN(fin.getTime()) || fin.getTime() < ini.getTime()) fin = new Date(ini.getTime());
+  // Los cumpleaños duran UN solo día: Google los guarda con fin "exclusivo"
+  // (medianoche del día siguiente), así que forzamos fin = inicio.
+  if (clasificarEvento(ev) === 'cumpleanos') fin = new Date(ini.getTime());
+  return { ini: ini, fin: fin };
+}
+
+// ¿El evento sucede (total o parcialmente) en la fecha dada?
+function eventoIncluyeFecha(ev, fecha) {
+  var r = rangoEvento(ev);
+  var f = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+  return f.getTime() >= r.ini.getTime() && f.getTime() <= r.fin.getTime();
+}
+
+// Texto donde se busca: título + descripción + ubicación + calendario + tipo
+function textoBusqueda(ev) {
+  return ((ev.titulo || '') + ' ' + (ev.descripcion || '') + ' ' + (ev.ubicacion || '') + ' ' +
+    (ev.calendario || '') + ' ' + asignarColor(clasificarEvento(ev)).texto).toLowerCase();
 }
 
 function esHoy(fechaStr) {
@@ -798,23 +978,26 @@ function esManana(fechaStr) {
 }
 
 function estaEnPeriodo(ev) {
-  var f = parsearFecha(ev.inicio);
+  var r = rangoEvento(ev);
   var hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
 
   if (FILTRO_PERIODO === 'hoy') {
-    return esHoy(ev.inicio);
+    // Incluye eventos multi-día que abarcan hoy
+    return r.fin.getTime() >= hoy.getTime() && r.ini.getTime() <= hoy.getTime();
   }
   if (FILTRO_PERIODO === 'semana') {
     var fin = new Date(hoy);
     fin.setDate(fin.getDate() + 7);
-    return f >= hoy && f <= fin;
+    return r.ini.getTime() <= fin.getTime() && r.fin.getTime() >= hoy.getTime();
   }
   if (FILTRO_PERIODO === 'mes') {
-    return f.getFullYear() === hoy.getFullYear() && f.getMonth() === hoy.getMonth();
+    var iniMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    var finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+    return r.ini.getTime() <= finMes.getTime() && r.fin.getTime() >= iniMes.getTime();
   }
   if (FILTRO_PERIODO === 'anio') {
-    return f.getFullYear() === hoy.getFullYear();
+    return r.ini.getFullYear() <= hoy.getFullYear() && r.fin.getFullYear() >= hoy.getFullYear();
   }
   return true;
 }
@@ -868,25 +1051,26 @@ function limpiarFiltroTipo() {
 }
 
 function actualizarKPIs() {
-  var kpis = { sala: 0, reuniones: 0, capacitaciones: 0, cumpleanos: 0 };
+  var kpis = { sala: 0, reuniones: 0, capacitaciones: 0, cumpleanos: 0, eventos: 0 };
   for (var i = 0; i < todosLosEventos.length; i++) {
     var ev = todosLosEventos[i];
     if (FECHA_BUSCAR_CAL) {
-      // La fecha elegida tiene prioridad sobre el período
-      var partes = ev.inicio.split('T')[0].split('-');
-      var fEv = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-      if (fEv.getTime() !== FECHA_BUSCAR_CAL.getTime()) continue;
+      // La fecha elegida tiene prioridad sobre el período (multi-día incluido)
+      if (!eventoIncluyeFecha(ev, FECHA_BUSCAR_CAL)) continue;
     } else if (!estaEnPeriodo(ev)) continue;
     var tipo = clasificarEvento(ev);
     if (tipo === 'sala') kpis.sala++;
     else if (tipo === 'reuniones') kpis.reuniones++;
     else if (tipo === 'capacitaciones') kpis.capacitaciones++;
     else if (tipo === 'cumpleanos') kpis.cumpleanos++;
+    else if (tipo === 'eventos') kpis.eventos++;
   }
   document.getElementById('kpi-sala').textContent = kpis.sala;
   document.getElementById('kpi-reuniones').textContent = kpis.reuniones;
   document.getElementById('kpi-capacitaciones').textContent = kpis.capacitaciones;
   document.getElementById('kpi-cumpleanos').textContent = kpis.cumpleanos;
+  var elEventos = document.getElementById('kpi-eventos');
+  if (elEventos) elEventos.textContent = kpis.eventos;
 
   if (FECHA_BUSCAR_CAL) {
     var meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -900,18 +1084,17 @@ function actualizarKPIs() {
 function aplicarFiltros() {
   eventosFiltrados = todosLosEventos.filter(function(ev) {
     if (FECHA_BUSCAR_CAL) {
-      // La fecha elegida tiene prioridad sobre el período
-      var partes = ev.inicio.split('T')[0].split('-');
-      var fEv = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-      if (fEv.getTime() !== FECHA_BUSCAR_CAL.getTime()) return false;
-    } else if (!estaEnPeriodo(ev)) return false;
+      // La fecha elegida tiene prioridad (evento multi-día visible en cada día)
+      if (!eventoIncluyeFecha(ev, FECHA_BUSCAR_CAL)) return false;
+    } else if (!TEXTO_BUSQUEDA && !estaEnPeriodo(ev)) {
+      // Con búsqueda activa se busca en TODOS los eventos (el período no oculta resultados)
+      return false;
+    }
     if (FILTRO_TIPO) {
       if (clasificarEvento(ev) !== FILTRO_TIPO) return false;
     }
     if (TEXTO_BUSQUEDA) {
-      var busq = TEXTO_BUSQUEDA.toLowerCase();
-      var info = ((ev.titulo || '') + ' ' + (ev.descripcion || '') + ' ' + (ev.ubicacion || '')).toLowerCase();
-      if (info.indexOf(busq) === -1) return false;
+      if (textoBusqueda(ev).indexOf(TEXTO_BUSQUEDA.toLowerCase()) === -1) return false;
     }
     return true;
   });
@@ -932,26 +1115,23 @@ function renderizarGantt() {
   var fechaRef = FECHA_BUSCAR_CAL || new Date();
   fechaRef = new Date(fechaRef.getFullYear(), fechaRef.getMonth(), fechaRef.getDate());
 
-  // Eventos del día de referencia (respetando filtros de tipo y texto)
+  // Eventos del día de referencia (multi-día visible en cada día que abarca)
   var eventosDia = [];
   for (var i = 0; i < todosLosEventos.length; i++) {
     var ev = todosLosEventos[i];
-    var partes = ev.inicio.split('T')[0].split('-');
-    var fEv = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-    if (fEv.getTime() !== fechaRef.getTime()) continue;
+    if (!eventoIncluyeFecha(ev, fechaRef)) continue;
     if (FILTRO_TIPO && clasificarEvento(ev) !== FILTRO_TIPO) continue;
     if (TEXTO_BUSQUEDA) {
-      var busq = TEXTO_BUSQUEDA.toLowerCase();
-      var info = ((ev.titulo || '') + ' ' + (ev.descripcion || '') + ' ' + (ev.ubicacion || '')).toLowerCase();
-      if (info.indexOf(busq) === -1) continue;
+      if (textoBusqueda(ev).indexOf(TEXTO_BUSQUEDA.toLowerCase()) === -1) continue;
     }
     eventosDia.push(ev);
   }
 
   if (eventosDia.length === 0) {
+    var motivo = TEXTO_BUSQUEDA ? ' coincide con la búsqueda "' + TEXTO_BUSQUEDA + '"' : '';
     cont.innerHTML = '<div class="gantt-titulo">📅 Horarios del día — ' +
       (fechaRef.getDate() + '/' + (fechaRef.getMonth() + 1) + '/' + fechaRef.getFullYear()) +
-      '</div><div class="gantt-vacio">No hay eventos con horario para este día.</div>';
+      '</div><div class="gantt-vacio">No hay eventos para este día' + escAgenda(motivo) + '.</div>';
     cont.style.display = '';
     return;
   }
@@ -961,7 +1141,8 @@ function renderizarGantt() {
   var conHora = [];
   for (var i = 0; i < eventosDia.length; i++) {
     var ev = eventosDia[i];
-    if (ev.todoElDia || ev.inicio.indexOf('T') === -1) todoElDia.push(ev);
+    var esTodoElDia = esEventoTodoElDia(ev);
+    if (esTodoElDia) todoElDia.push(ev);
     else conHora.push(ev);
   }
 
@@ -1040,7 +1221,7 @@ function renderizarGantt() {
     html += '<div class="gantt-barra gantt-barra-allday' + (conflictos[ev.id] ? ' conflicto' : '') + '" ' +
       'style="background:' + color.fondo + ';" onclick="verDetalle(\'' + ev.id.replace(/'/g, "\\'") + '\')" ' +
       'title="' + (ev.titulo || '').replace(/"/g, '&quot;') + '">' +
-      '🎂 ' + (ev.titulo || 'Sin título') + '</div>';
+      iconoTipo(tipo) + ' ' + (ev.titulo || 'Sin título') + '</div>';
     html += '</div></div>';
   }
 
@@ -1110,19 +1291,20 @@ function renderizarLista() {
     var ev = eventosPagina[i];
     var tipo = clasificarEvento(ev);
     var color = asignarColor(tipo);
-    var esTodoElDia = ev.todoElDia;
+    var esTodoElDia = esEventoTodoElDia(ev);
 
     var clases = ['cal-event-card', 'mb-3'];
-    if (esHoy(ev.inicio)) clases.push('hoy-reserva');
+    if (eventoIncluyeFecha(ev, new Date())) clases.push('hoy-reserva');
     else if (esManana(ev.inicio)) clases.push('manana');
 
     var horaInicio = esTodoElDia ? '' : formatearHora(ev.inicio);
     var horaFin = esTodoElDia ? '' : formatearHora(ev.fin);
     var horario = esTodoElDia ? 'Todo el día' : (horaInicio + ' a ' + horaFin);
-    var fecha = formatearFechaCorta(ev.inicio);
+    var fecha = formatearRangoFechas(ev);
 
-    var badgeHoy = esHoy(ev.inicio) ? '<span class="badge bg-warning text-dark" style="font-size:9px;">HOY</span>' : '';
-    var badgeManana = esManana(ev.inicio) ? '<span class="badge bg-primary" style="font-size:9px;">MAÑANA</span>' : '';
+    var incluyeHoy = eventoIncluyeFecha(ev, new Date());
+    var badgeHoy = incluyeHoy ? '<span class="badge bg-warning text-dark" style="font-size:9px;">HOY</span>' : '';
+    var badgeManana = (!incluyeHoy && esManana(ev.inicio)) ? '<span class="badge bg-primary" style="font-size:9px;">MAÑANA</span>' : '';
 
     html += '<div class="' + clases.join(' ') + '" data-tipo="' + tipo + '" onclick="verDetalle(\'' + ev.id + '\')">';
     html += '<div class="d-flex justify-content-between align-items-start">';
@@ -1233,6 +1415,28 @@ function formatearFechaLarga(fechaStr) {
   return f.toLocaleDateString('es-AR', opciones);
 }
 
+function formatearRangoFechas(ev) {
+  var r = rangoEvento(ev);
+  if (r.ini.getTime() === r.fin.getTime()) return formatearFechaCorta(ev.inicio);
+  var meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  if (r.ini.getFullYear() === r.fin.getFullYear() && r.ini.getMonth() === r.fin.getMonth()) {
+    return r.ini.getDate() + ' al ' + r.fin.getDate() + ' ' + meses[r.fin.getMonth()] + ' ' + r.fin.getFullYear();
+  }
+  return formatearFechaCorta(ev.inicio) + ' al ' + formatearFechaCorta(ev.fin);
+}
+
+function formatearRangoLargo(ev) {
+  var r = rangoEvento(ev);
+  if (r.ini.getTime() === r.fin.getTime()) return formatearFechaLarga(ev.inicio);
+  return 'del ' + formatearFechaLarga(ev.inicio) + ' al ' + formatearFechaLarga(ev.fin);
+}
+
+function esEventoTodoElDia(ev) {
+  var ini = ev.inicio || '';
+  return ev.todoElDia || ini.indexOf('T') === -1 ||
+    (/T00:00(:00)?$/.test(ini) && /T23:59/.test(ev.fin || ''));
+}
+
 function formatearHora(horaStr) {
   if (!horaStr || horaStr.indexOf('T') === -1) return '';
   var partes = horaStr.split('T')[1].split(':');
@@ -1265,11 +1469,12 @@ function verDetalle(id) {
   document.getElementById('ver-tipo').className = 'badge ' + color.badge;
   document.getElementById('ver-titulo').textContent = ev.titulo || 'Sin título';
 
-  if (ev.todoElDia) {
-    document.getElementById('ver-fecha').textContent = formatearFechaLarga(ev.inicio);
+  document.getElementById('ver-fecha').textContent = formatearRangoLargo(ev);
+  if (esEventoTodoElDia(ev)) {
     document.getElementById('ver-horario').textContent = 'Todo el día';
+  } else if (rangoEvento(ev).ini.getTime() !== rangoEvento(ev).fin.getTime()) {
+    document.getElementById('ver-horario').textContent = formatearHora(ev.inicio) + ' a ' + formatearHora(ev.fin) + ' (cada día del rango)';
   } else {
-    document.getElementById('ver-fecha').textContent = formatearFechaLarga(ev.inicio);
     document.getElementById('ver-horario').textContent = formatearHora(ev.inicio) + ' a ' + formatearHora(ev.fin);
   }
 
@@ -1373,29 +1578,23 @@ async function guardarEvento() {
   modal.hide();
 
   try {
-    var res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({
-        action: accion,
-        datos: {
-          titulo: tituloCompleto,
-          inicio: inicio.toISOString(),
-          fin: fin.toISOString(),
-          descripcion: descripcion,
-          ubicacion: ubicacion,
-          eventoId: esEdicion ? eventoSeleccionadoId : undefined,
-          tituloOriginal: evOriginal ? evOriginal.titulo : undefined,
-          inicioOriginal: evOriginal ? evOriginal.inicio : undefined
-        }
-      })
+    var data = await postJsonAccion(accion, {
+      titulo: tituloCompleto,
+      inicio: inicio.toISOString(),
+      fin: fin.toISOString(),
+      descripcion: descripcion,
+      ubicacion: ubicacion,
+      eventoId: esEdicion ? eventoSeleccionadoId : undefined,
+      tituloOriginal: evOriginal ? evOriginal.titulo : undefined,
+      inicioOriginal: evOriginal ? evOriginal.inicio : undefined
     });
-    var data = await res.json();
-    mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
-    if (data.exito) recargar();
-    eventoSeleccionadoId = null;
+    if (data) {
+      mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
+      if (data.exito) recargar();
+      eventoSeleccionadoId = null;
+    }
   } catch (err) {
-    mostrarToast('danger', 'Error de conexión');
+    mostrarToast('danger', 'Error al guardar el evento');
   }
 }
 
@@ -1425,11 +1624,13 @@ async function eliminarEvento() {
         inicio: ev ? ev.inicio : null
       })
     });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
     mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
     if (data.exito) recargar();
   } catch (err) {
-    mostrarToast('danger', 'Error de conexión');
+    console.error('[eliminar] falló:', err);
+    mostrarToast('danger', 'Sin respuesta del servidor — probá de nuevo');
   }
   eventoSeleccionadoId = null;
 }
@@ -1451,6 +1652,7 @@ async function editarEvento() {
     'reuniones': 'Reunión',
     'capacitaciones': 'Capacitación',
     'audiencias': 'Audiencia',
+    'eventos': 'Evento',
     'sala': 'Reunión',
     'compromisos': 'Compromiso',
     'viajes': 'Viaje',
@@ -1514,7 +1716,7 @@ var PDF_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
 var PDF_DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 var PDF_DIAS_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 var PDF_INI_DIA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-var PDF_TIPOS_ORDEN = ['sala', 'reuniones', 'capacitaciones', 'cumpleanos', 'audiencias', 'compromisos', 'viajes', 'feriados', 'otros'];
+var PDF_TIPOS_ORDEN = ['sala', 'reuniones', 'eventos', 'capacitaciones', 'cumpleanos', 'audiencias', 'compromisos', 'viajes', 'feriados', 'otros'];
 
 function pdfRgb(hex) {
   var h = hex.replace('#', '');
@@ -1573,13 +1775,12 @@ function pdfEtiquetaVista() {
 function pdfEventosRango(desde, hasta) {
   var lista = todosLosEventos.filter(function(ev) {
     if (clasificarEvento(ev) === 'cumpleanos') return false;  // los cumpleaños no se exportan
-    var f = parsearFecha(ev.inicio);
-    if (f.getTime() < desde.getTime() || f.getTime() > hasta.getTime()) return false;
+    // Solape del rango del evento con el rango de la vista (multi-día incluido)
+    var r = rangoEvento(ev);
+    if (r.ini.getTime() > hasta.getTime() || r.fin.getTime() < desde.getTime()) return false;
     if (FILTRO_TIPO && clasificarEvento(ev) !== FILTRO_TIPO) return false;
     if (TEXTO_BUSQUEDA) {
-      var busq = TEXTO_BUSQUEDA.toLowerCase();
-      var info = ((ev.titulo || '') + ' ' + (ev.descripcion || '') + ' ' + (ev.ubicacion || '')).toLowerCase();
-      if (info.indexOf(busq) === -1) return false;
+      if (textoBusqueda(ev).indexOf(TEXTO_BUSQUEDA.toLowerCase()) === -1) return false;
     }
     return true;
   });
@@ -1590,9 +1791,17 @@ function pdfEventosRango(desde, hasta) {
 function pdfMapaDias(lista) {
   var mapa = {};
   for (var i = 0; i < lista.length; i++) {
-    var k = formatearFechaInput(lista[i].inicio);
-    if (!mapa[k]) mapa[k] = [];
-    mapa[k].push(lista[i]);
+    // Un evento multi-día aparece en cada día que abarca
+    var r = rangoEvento(lista[i]);
+    var d = new Date(r.ini.getTime());
+    var guardia = 0;
+    while (d.getTime() <= r.fin.getTime() && guardia < 366) {
+      var k = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      if (!mapa[k]) mapa[k] = [];
+      if (mapa[k].indexOf(lista[i]) === -1) mapa[k].push(lista[i]);
+      d.setDate(d.getDate() + 1);
+      guardia++;
+    }
   }
   return mapa;
 }
