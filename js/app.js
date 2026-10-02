@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbw-9Z3vI83sdCYg7ayhlEDUs_Nh_SUIJFzXnfItytI8LYGau62xfDga6G0XyIC0lp6f/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxMo4XYtDmZwBm9RsSd1KfL-WC_kKHQGVviNxdo7WPn-zuDNd7xD9WufwR06YiGFVvw/exec';
 
 // ============================================================
 // ACCESOS POR ROL (cambiá los códigos acá cuando lo necesites)
@@ -118,15 +118,22 @@ function guardarCacheDatos(data) {
 }
 
 async function cargarDatos() {
-  try {
-    var res = await fetch(API_URL + '?action=obtenerDatosPanel');
-    var data = await res.json();
-    if (!data.error) guardarCacheDatos(data);
-    return data;
-  } catch (err) {
-    console.error('Error cargando datos:', err);
-    return null;
+  var ultimo = null;
+  for (var intento = 1; intento <= 3; intento++) {
+    try {
+      var res = await fetch(API_URL + '?action=obtenerDatosPanel');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.error) guardarCacheDatos(data);
+      return data;
+    } catch (err) {
+      ultimo = err;
+      console.warn('Error cargando datos (intento ' + intento + '/3):', err);
+      if (intento < 3) await new Promise(function(r) { setTimeout(r, 1200 * intento); });
+    }
   }
+  console.error('Error cargando datos:', ultimo);
+  return null;
 }
 
 async function enviarAccion(action, params) {
@@ -136,10 +143,11 @@ async function enviarAccion(action, params) {
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: action, ...params })
     });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   } catch (err) {
     console.error('Error:', err);
-    return { exito: false, mensaje: 'Error de conexion' };
+    return { exito: false, mensaje: 'Sin respuesta del servidor — probá de nuevo' };
   }
 }
 
@@ -166,9 +174,17 @@ async function actualizarPanel() {
   var btn = document.getElementById('btn-actualizar');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Actualizando...';
-  await cargarDatos().then(function(data) { if (data) renderPanel(data); });
+  var data = await cargarDatos();
   btn.disabled = false;
   btn.innerHTML = '↻ Actualizar';
+  if (data && !data.error) {
+    renderPanel(data);
+    mostrarToast('success', 'Panel actualizado');
+  } else if (data) {
+    mostrarToast('danger', 'El servidor respondió con un error — se mantiene la información anterior');
+  } else {
+    mostrarToast('danger', 'Sin respuesta del servidor — se mantiene la información anterior');
+  }
 }
 
 function parsearFecha(ddmmyyyy) {
