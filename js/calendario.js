@@ -176,6 +176,61 @@ function recargar() {
   });
 }
 
+// Refresca SOLO el tramo de fechas indicado (±1 día de margen) en vez del año
+// completo: pide esos días al backend, reemplaza los eventos locales que lo
+// intersectan y conserva el resto del año ya cargado. Se usa después de
+// crear, editar o borrar un evento para que el cambio se refleje al instante.
+function recargarRango(desde, hasta) {
+  if (!todosLosEventos.length) { recargar(); return; } // sin datos base: carga completa
+  var d0 = desde.getTime(), d1 = hasta.getTime();
+  obtenerEventosAPI(desde, hasta).then(function(data) {
+    if (!data || data.exito !== true) {
+      mostrarToast('warning', 'No se pudo refrescar la fecha — se muestran los datos anteriores');
+      return;
+    }
+    var conservados = [];
+    for (var i = 0; i < todosLosEventos.length; i++) {
+      var r = rangoEvento(todosLosEventos[i]);
+      if (r.fin.getTime() < d0 || r.ini.getTime() > d1) conservados.push(todosLosEventos[i]);
+    }
+    todosLosEventos = conservados.concat(data.eventos);
+    try { localStorage.setItem(claveCacheCal(), JSON.stringify({ ts: Date.now(), data: todosLosEventos })); } catch (e) {}
+    pintarEventos();
+  }).catch(function(err) {
+    console.error('[recargarRango] falló:', err);
+    mostrarToast('warning', 'Sin conexión — el cambio quedó guardado pero puede no reflejarse hasta "↻ Actualizar"');
+  });
+}
+
+// Tramo [día(inicio) − 1, día(fin) + 1] que abarca todas las fechas recibidas
+// (Date o string ISO; se ignoran vacíos/nulos). Devuelve null si no hay ninguna.
+function ventanaEntre(fechas) {
+  var min = null, max = null;
+  for (var i = 0; i < fechas.length; i++) {
+    var f = fechas[i];
+    if (!f) continue;
+    var d = (f instanceof Date) ? f : parsearFecha(String(f));
+    if (isNaN(d.getTime())) continue;
+    var dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    if (!min || dia.getTime() < min.getTime()) min = new Date(dia.getTime());
+    if (!max || dia.getTime() > max.getTime()) max = new Date(dia.getTime());
+  }
+  if (!min) return null;
+  if (!max) max = new Date(min.getTime());
+  return {
+    desde: new Date(min.getFullYear(), min.getMonth(), min.getDate() - 1, 0, 0, 0),
+    hasta: new Date(max.getFullYear(), max.getMonth(), max.getDate() + 1, 23, 59, 59)
+  };
+}
+
+// Refresca el tramo que abarcan esas fechas (o recarga todo si no hay fechas
+// válidas o si todavía no hay datos cargados).
+function refrescarFechas(fechas) {
+  var v = ventanaEntre(fechas);
+  if (!v) { recargar(); return; }
+  recargarRango(v.desde, v.hasta);
+}
+
 // ============================================================
 // IMPORTACIÓN DE ARCHIVOS (TXT + XLSX/DOC/PDF)
 // ============================================================
@@ -497,7 +552,7 @@ async function crearEventoDesdeNota(i) {
       if (data.exito) {
         notasDetectadas.splice(i, 1);
         renderNotaPreview();
-        recargar();
+        refrescarFechas([inicio, fin]);
       } else if (btn) {
         btn.disabled = false;
         btn.textContent = '✅ Crear evento';
@@ -880,7 +935,11 @@ async function importarEventosTxt() {
       if (data.exito) {
         var modal = bootstrap.Modal.getInstance(document.getElementById('modalImportarTxt'));
         if (modal) modal.hide();
-        recargar();
+        var fechasImportadas = [];
+        for (var k = 0; k < seleccionados.length; k++) {
+          fechasImportadas.push(seleccionados[k].inicio, seleccionados[k].fin);
+        }
+        refrescarFechas(fechasImportadas);
       }
     }
   } catch (err) {
@@ -1590,7 +1649,11 @@ async function guardarEvento() {
     });
     if (data) {
       mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
-      if (data.exito) recargar();
+      if (data.exito) {
+        // Refresca tanto el rango nuevo como el original (el evento pudo moverse de fecha)
+        refrescarFechas([inicio, fin,
+          evOriginal ? evOriginal.inicio : null, evOriginal ? evOriginal.fin : null]);
+      }
       eventoSeleccionadoId = null;
     }
   } catch (err) {
@@ -1627,7 +1690,10 @@ async function eliminarEvento() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
     mostrarToast(data.exito ? 'success' : 'danger', data.mensaje);
-    if (data.exito) recargar();
+    if (data.exito) {
+      if (ev) refrescarFechas([ev.inicio, ev.fin]);
+      else recargar();
+    }
   } catch (err) {
     console.error('[eliminar] falló:', err);
     mostrarToast('danger', 'Sin respuesta del servidor — probá de nuevo');
