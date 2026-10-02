@@ -388,10 +388,11 @@ body {
 /* Event type colors */
 .cal-event-card[data-tipo="sala"]::before { background: linear-gradient(180deg, #f59e0b, #ef4444); }
 .cal-event-card[data-tipo="reuniones"]::before { background: linear-gradient(180deg, #10b981, #06b6d4); }
+.cal-event-card[data-tipo="eventos"]::before { background: linear-gradient(180deg, #0ea5e9, #6366f1); }
 .cal-event-card[data-tipo="cumpleanos"]::before { background: linear-gradient(180deg, #f43f5e, #fbbf24); }
 .cal-event-card[data-tipo="capacitaciones"]::before { background: linear-gradient(180deg, #8b5cf6, #ec4899); }
-.cal-event-card[data-tipo="compromiso"]::before { background: linear-gradient(180deg, #f97316, #eab308); }
-.cal-event-card[data-tipo="viaje"]::before { background: linear-gradient(180deg, #14b8a6, #22d3ee); }
+.cal-event-card[data-tipo="compromisos"]::before { background: linear-gradient(180deg, #f97316, #eab308); }
+.cal-event-card[data-tipo="viajes"]::before { background: linear-gradient(180deg, #14b8a6, #22d3ee); }
 
 /* Event date badge */
 .cal-event-date-badge {
@@ -413,6 +414,7 @@ body {
 /* Badge colors */
 .badge.bg-tipo-sala { background: linear-gradient(135deg, #f59e0b, #ef4444) !important; }
 .badge.bg-tipo-reuniones { background: linear-gradient(135deg, #10b981, #06b6d4) !important; }
+.badge.bg-tipo-evento { background: linear-gradient(135deg, #0ea5e9, #6366f1) !important; }
 .badge.bg-tipo-cumpleanos { background: linear-gradient(135deg, #f43f5e, #fbbf24) !important; }
 .badge.bg-tipo-capacitaciones { background: linear-gradient(135deg, #8b5cf6, #ec4899) !important; }
 .badge.bg-tipo-compromiso { background: linear-gradient(135deg, #f97316, #eab308) !important; }
@@ -664,7 +666,7 @@ body {
 }
 .nota-campos {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px 10px;
 }
 .nota-campo {
@@ -696,7 +698,26 @@ body {
 .nota-acciones {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin-top: 10px;
+}
+.nota-btn-ia {
+  background: #eef2ff;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  transition: all 0.15s;
+}
+.nota-btn-ia:hover:not(:disabled) {
+  background: #e0e7ff;
+}
+.nota-btn-ia:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 @media (max-width: 576px) {
   .nota-campos {
