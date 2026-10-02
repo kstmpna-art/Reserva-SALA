@@ -50,28 +50,35 @@
 
     <!-- KPIs -->
     <div id="kpis-calendario" class="row g-3 mb-4" style="display:none;">
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md">
         <div class="cal-kpi-card" data-tipo="sala" onclick="filtrarTipo('sala')">
           <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#f093fb,#f5576c);">📋</div>
           <div class="cal-kpi-num" id="kpi-sala">0</div>
           <div class="cal-kpi-label">Sala de Situación</div>
         </div>
       </div>
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md">
         <div class="cal-kpi-card" data-tipo="reuniones" onclick="filtrarTipo('reuniones')">
           <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#4facfe,#00f2fe);">🤝</div>
           <div class="cal-kpi-num" id="kpi-reuniones">0</div>
           <div class="cal-kpi-label">Reuniones</div>
         </div>
       </div>
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md">
+        <div class="cal-kpi-card" data-tipo="eventos" onclick="filtrarTipo('eventos')">
+          <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#38bdf8,#818cf8);"><img src="icons8-evento.png" alt=""></div>
+          <div class="cal-kpi-num" id="kpi-eventos">0</div>
+          <div class="cal-kpi-label">Eventos</div>
+        </div>
+      </div>
+      <div class="col-6 col-md">
         <div class="cal-kpi-card" data-tipo="cumpleanos" onclick="filtrarTipo('cumpleanos')">
           <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#fa709a,#fee140);">🎂</div>
           <div class="cal-kpi-num" id="kpi-cumpleanos">0</div>
           <div class="cal-kpi-label">Cumpleaños</div>
         </div>
       </div>
-      <div class="col-6 col-md-3">
+      <div class="col-12 col-md">
         <div class="cal-kpi-card" data-tipo="capacitaciones" onclick="filtrarTipo('capacitaciones')">
           <div class="cal-kpi-icon" style="background:linear-gradient(135deg,#a18cd1,#fbc2eb);">📚</div>
           <div class="cal-kpi-num" id="kpi-capacitaciones">0</div>
@@ -169,6 +176,7 @@
           <div class="mb-3">
             <label class="cal-label">Tipo de evento *</label>
             <select class="cal-input" id="crear-tipo" onchange="toggleTipoCustom()">
+              <option value="Evento">Evento</option>
               <option value="Reunión">Reunión</option>
               <option value="Capacitación">Capacitación</option>
               <option value="Audiencia">Audiencia</option>
@@ -257,7 +265,8 @@
                 <thead>
                   <tr>
                     <th style="width:34px;"><input type="checkbox" id="import-check-all" checked onchange="toggleImportTodos(this.checked)"></th>
-                    <th>Fecha</th>
+                    <th>Inicio</th>
+                    <th>Fin</th>
                     <th>Horario</th>
                     <th>Título</th>
                     <th style="width:92px;">Estado</th>
